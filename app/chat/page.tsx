@@ -20,7 +20,19 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
 
+  const addMessageIfMissing = (prev: Message[], incoming: Message) => {
+    if (prev.some((message) => message.id === incoming.id)) {
+      return prev
+    }
+
+    return [...prev, incoming].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+  }
+
   useEffect(() => {
+    let isMounted = true
+
     const loadChat = async () => {
       setError('')
 
@@ -30,10 +42,11 @@ export default function ChatPage() {
       } = await supabase.auth.getUser()
 
       if (userError || !user) {
-        router.push('/login')
+        router.replace('/login')
         return
       }
 
+      if (!isMounted) return
       setUserId(user.id)
 
       const { data, error: messagesError } = await supabase
@@ -48,9 +61,33 @@ export default function ChatPage() {
       }
 
       setLoadingMessages(false)
+
+      const channel = supabase
+        .channel('public:messages')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages' },
+          (payload) => {
+            const newMessage = payload.new as Message
+            setMessages((prev) => addMessageIfMissing(prev, newMessage))
+          }
+        )
+        .subscribe()
+
+      return () => {
+        void supabase.removeChannel(channel)
+      }
     }
 
-    void loadChat()
+    let cleanup: (() => void) | undefined
+    void loadChat().then((fn) => {
+      cleanup = fn
+    })
+
+    return () => {
+      isMounted = false
+      cleanup?.()
+    }
   }, [router])
 
   const handleSend = async (e: FormEvent) => {
@@ -78,16 +115,44 @@ export default function ChatPage() {
       return
     }
 
-    setMessages((prev) => [...prev, data])
+    setMessages((prev) => addMessageIfMissing(prev, data))
     setContent('')
   }
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.replace('/login')
+  }
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.user) {
+        router.replace('/login')
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [router])
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6">
       <div className="mx-auto flex h-[calc(100vh-3rem)] w-full max-w-md flex-col rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-        <div className="border-b border-slate-200 px-4 py-3">
-          <h1 className="text-lg font-semibold text-slate-900">500ligaen Chat</h1>
-          <p className="text-xs text-slate-500">Global chat</p>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <div>
+            <h1 className="text-lg font-semibold text-slate-900">500ligaen Chat</h1>
+            <p className="text-xs text-slate-500">Global chat</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+          >
+            Logg ut
+          </button>
         </div>
 
         <section className="flex-1 space-y-3 overflow-y-auto p-4">
