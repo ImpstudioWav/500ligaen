@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AppNav } from '@/components/AppNav'
 import { getProfileByUserId, getUsernameMap, shortenUserId } from '@/lib/profiles'
 
 type LeaderboardRow = {
@@ -74,7 +75,9 @@ export default function LeaderboardPage() {
 
   return (
     <main className="flex min-h-screen items-start justify-center bg-slate-50 px-4 py-8">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+      <div className="w-full max-w-md space-y-4">
+        <AppNav />
+      <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
         <div className="border-b border-slate-200 px-4 py-4 text-center sm:text-left">
           <h1 className="text-xl font-semibold text-slate-900">Leaderboard</h1>
           <p className="mt-1 text-sm text-slate-500">Sortert etter poeng (høyest først)</p>
@@ -133,6 +136,7 @@ export default function LeaderboardPage() {
             </div>
           )}
         </section>
+      </div>
       </div>
     </main>
   )

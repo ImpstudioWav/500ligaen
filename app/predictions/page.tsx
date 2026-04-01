@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AppNav } from '@/components/AppNav'
 import { getProfileByUserId } from '@/lib/profiles'
 
 const TEAMS = [
@@ -183,7 +184,9 @@ export default function PredictionsPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6">
-      <div className="mx-auto w-full max-w-md rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <div className="mx-auto w-full max-w-md space-y-3">
+        <AppNav />
+      <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-xl font-semibold text-slate-900">Prediksjoner</h1>
         <p className="mt-1 text-sm text-slate-600">Velg tabellplassering for alle 16 lag.</p>
 
@@ -234,6 +237,7 @@ export default function PredictionsPage() {
             </button>
           </form>
         )}
+      </div>
       </div>
     </main>
   )

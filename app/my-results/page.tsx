@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AppNav } from '@/components/AppNav'
 import { getProfileByUserId } from '@/lib/profiles'
 
 type ScoreDetailRow = {
@@ -99,7 +100,9 @@ export default function MyResultsPage() {
 
   return (
     <main className="flex min-h-screen items-start justify-center bg-slate-50 px-4 py-8">
-      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+      <div className="w-full max-w-2xl space-y-4">
+        <AppNav />
+      <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
         <div className="border-b border-slate-200 px-4 py-4">
           <h1 className="text-xl font-semibold text-slate-900">Mine resultater</h1>
           {seasonLabel !== null ? (
@@ -182,6 +185,7 @@ export default function MyResultsPage() {
             </>
           )}
         </section>
+      </div>
       </div>
     </main>
   )

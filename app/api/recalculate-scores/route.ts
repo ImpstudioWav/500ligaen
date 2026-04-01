@@ -1,6 +1,24 @@
+import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { computeTeamScore } from '@/lib/scoring'
+
+async function hasValidUserBearer(request: Request): Promise<boolean> {
+  const authHeader = request.headers.get('authorization')
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null
+  if (!token) return false
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !anon) return false
+  const authClient = createClient(url, anon, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  })
+  const {
+    data: { user },
+    error,
+  } = await authClient.auth.getUser()
+  return !error && !!user
+}
 
 type StandingRow = {
   team_name: string
@@ -29,11 +47,19 @@ function parseSeason(value: unknown): number {
 
 export async function POST(request: Request) {
   const secret = process.env.RECALCULATE_SCORES_SECRET
+  let authorized = false
   if (secret) {
     const header = request.headers.get('x-recalc-secret')
-    if (header !== secret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (header === secret) {
+      authorized = true
+    } else {
+      authorized = await hasValidUserBearer(request)
     }
+  } else {
+    authorized = true
+  }
+  if (!authorized) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   let season: number

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AppNav } from '@/components/AppNav'
 import { getProfileByUserId, getUsernameMap, shortenUserId } from '@/lib/profiles'
 
 type Message = {
@@ -158,7 +159,9 @@ export default function ChatPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6">
-      <div className="mx-auto flex h-[calc(100vh-3rem)] w-full max-w-md flex-col rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+      <div className="mx-auto w-full max-w-md space-y-3">
+        <AppNav />
+      <div className="flex h-[calc(100dvh-10rem)] min-h-[280px] w-full flex-col rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div>
             <h1 className="text-lg font-semibold text-slate-900">500ligaen Chat</h1>
@@ -214,6 +217,7 @@ export default function ChatPage() {
             </button>
           </div>
         </form>
+      </div>
       </div>
     </main>
   )

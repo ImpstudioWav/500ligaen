@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AppNav } from '@/components/AppNav'
 import { getProfileByUserId, isUsernameTakenError } from '@/lib/profiles'
 
 export default function ProfilePage() {
@@ -98,7 +99,9 @@ export default function ProfilePage() {
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6">
-      <div className="mx-auto w-full max-w-md rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <div className="mx-auto w-full max-w-md space-y-3">
+        <AppNav />
+      <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-2xl font-semibold text-slate-900">Profil</h1>
         <p className="mt-1 text-sm text-slate-600">Se og oppdater brukernavnet ditt.</p>
 
@@ -145,6 +148,7 @@ export default function ProfilePage() {
             </button>
           </form>
         )}
+      </div>
       </div>
     </main>
   )
