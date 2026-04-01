@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { ensureProfileForUser, getUsernameMap, shortenUserId } from '@/lib/profiles'
 
 type LeaderboardRow = {
   id: string
@@ -14,36 +15,46 @@ type LeaderboardRow = {
 export default function LeaderboardPage() {
   const router = useRouter()
   const [rows, setRows] = useState<LeaderboardRow[]>([])
+  const [usernameMap, setUsernameMap] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     const loadLeaderboard = async () => {
       setError('')
+      try {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser()
 
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
+        if (userError || !user) {
+          router.replace('/login')
+          return
+        }
+        await ensureProfileForUser(user.id)
 
-      if (userError || !user) {
-        router.replace('/login')
-        return
+        const { data, error: leaderboardError } = await supabase
+          .from('leaderboard')
+          .select('id, user_id, points, updated_at')
+          .order('points', { ascending: false })
+          .order('updated_at', { ascending: true })
+
+        if (leaderboardError) {
+          setError(leaderboardError.message)
+        } else {
+          const fetchedRows = data ?? []
+          setRows(fetchedRows)
+          const usernames = await getUsernameMap(fetchedRows.map((row) => row.user_id))
+          setUsernameMap(usernames)
+        }
+      } catch (loadError) {
+        const message =
+          loadError instanceof Error ? loadError.message : 'Kunne ikke laste leaderboard.'
+        setError(message)
+      } finally {
+        setLoading(false)
       }
-
-      const { data, error: leaderboardError } = await supabase
-        .from('leaderboard')
-        .select('id, user_id, points, updated_at')
-        .order('points', { ascending: false })
-        .order('updated_at', { ascending: true })
-
-      if (leaderboardError) {
-        setError(leaderboardError.message)
-      } else {
-        setRows(data ?? [])
-      }
-
-      setLoading(false)
     }
 
     void loadLeaderboard()
@@ -77,7 +88,7 @@ export default function LeaderboardPage() {
                 <thead className="bg-slate-100 text-slate-700">
                   <tr>
                     <th className="px-3 py-2 font-medium">Rank</th>
-                    <th className="px-3 py-2 font-medium">User ID</th>
+                    <th className="px-3 py-2 font-medium">Bruker</th>
                     <th className="px-3 py-2 font-medium">Poeng</th>
                   </tr>
                 </thead>
@@ -85,7 +96,9 @@ export default function LeaderboardPage() {
                   {rankedRows.map((row) => (
                     <tr key={row.id} className="border-t border-slate-200">
                       <td className="px-3 py-2 text-slate-900">{row.rank}</td>
-                      <td className="px-3 py-2 text-xs text-slate-600">{row.user_id}</td>
+                      <td className="px-3 py-2 text-xs text-slate-600">
+                        {usernameMap[row.user_id] ?? shortenUserId(row.user_id)}
+                      </td>
                       <td className="px-3 py-2 font-medium text-slate-900">{row.points}</td>
                     </tr>
                   ))}

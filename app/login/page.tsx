@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { ensureProfileForUser } from '@/lib/profiles'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -19,6 +20,11 @@ export default function LoginPage() {
       } = await supabase.auth.getUser()
 
       if (user) {
+        try {
+          await ensureProfileForUser(user.id)
+        } catch {
+          // If profile creation fails, user can still continue.
+        }
         router.replace('/chat')
       }
     }
@@ -29,7 +35,11 @@ export default function LoginPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        router.replace('/chat')
+        void ensureProfileForUser(session.user.id)
+          .catch(() => undefined)
+          .finally(() => {
+            router.replace('/chat')
+          })
       }
     })
 
@@ -56,6 +66,17 @@ export default function LoginPage() {
       return
     }
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (user) {
+      try {
+        await ensureProfileForUser(user.id)
+      } catch {
+        // If profile creation fails, user can still continue.
+      }
+    }
+
     router.replace('/chat')
   }
 
@@ -74,6 +95,17 @@ export default function LoginPage() {
     if (signUpError) {
       setError(signUpError.message)
       return
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (user) {
+      try {
+        await ensureProfileForUser(user.id)
+      } catch {
+        // If profile creation fails, user can still continue.
+      }
     }
 
     setMessage('Bruker opprettet. Sjekk e-post for bekreftelse hvis aktivert.')

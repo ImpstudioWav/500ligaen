@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { ensureProfileForUser, getUsernameMap, shortenUserId } from '@/lib/profiles'
 
 type Message = {
   id: string
@@ -19,6 +20,7 @@ export default function ChatPage() {
   const [loadingMessages, setLoadingMessages] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  const [usernameMap, setUsernameMap] = useState<Record<string, string>>({})
 
   const addMessageIfMissing = (prev: Message[], incoming: Message) => {
     if (prev.some((message) => message.id === incoming.id)) {
@@ -35,47 +37,59 @@ export default function ChatPage() {
 
     const loadChat = async () => {
       setError('')
+      try {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser()
 
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
+        if (userError || !user) {
+          router.replace('/login')
+          return
+        }
 
-      if (userError || !user) {
-        router.replace('/login')
-        return
-      }
+        if (!isMounted) return
+        await ensureProfileForUser(user.id)
+        setUserId(user.id)
 
-      if (!isMounted) return
-      setUserId(user.id)
+        const { data, error: messagesError } = await supabase
+          .from('messages')
+          .select('id, user_id, content, created_at')
+          .order('created_at', { ascending: true })
 
-      const { data, error: messagesError } = await supabase
-        .from('messages')
-        .select('id, user_id, content, created_at')
-        .order('created_at', { ascending: true })
+        if (messagesError) {
+          setError(messagesError.message)
+        } else {
+          const fetchedMessages = data ?? []
+          setMessages(fetchedMessages)
+          const usernames = await getUsernameMap(fetchedMessages.map((message) => message.user_id))
+          setUsernameMap(usernames)
+        }
 
-      if (messagesError) {
-        setError(messagesError.message)
-      } else {
-        setMessages(data ?? [])
-      }
+        setLoadingMessages(false)
 
-      setLoadingMessages(false)
+        const channel = supabase
+          .channel('public:messages')
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'messages' },
+            (payload) => {
+              const newMessage = payload.new as Message
+              setMessages((prev) => addMessageIfMissing(prev, newMessage))
+              void getUsernameMap([newMessage.user_id]).then((usernames) => {
+                setUsernameMap((prev) => ({ ...prev, ...usernames }))
+              })
+            }
+          )
+          .subscribe()
 
-      const channel = supabase
-        .channel('public:messages')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'messages' },
-          (payload) => {
-            const newMessage = payload.new as Message
-            setMessages((prev) => addMessageIfMissing(prev, newMessage))
-          }
-        )
-        .subscribe()
-
-      return () => {
-        void supabase.removeChannel(channel)
+        return () => {
+          void supabase.removeChannel(channel)
+        }
+      } catch (loadError) {
+        const message = loadError instanceof Error ? loadError.message : 'Kunne ikke laste chat.'
+        setError(message)
+        setLoadingMessages(false)
       }
     }
 
@@ -165,7 +179,7 @@ export default function ChatPage() {
               <article key={message.id} className="rounded-xl bg-slate-100 px-3 py-2">
                 <p className="text-sm text-slate-900">{message.content}</p>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  {message.user_id} •{' '}
+                  {usernameMap[message.user_id] ?? shortenUserId(message.user_id)} •{' '}
                   {new Date(message.created_at).toLocaleString('nb-NO')}
                 </p>
               </article>
