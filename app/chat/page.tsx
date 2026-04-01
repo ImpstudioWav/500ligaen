@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { ensureProfileForUser, getUsernameMap, shortenUserId } from '@/lib/profiles'
+import { getProfileByUserId, getUsernameMap, shortenUserId } from '@/lib/profiles'
 
 type Message = {
   id: string
@@ -49,7 +49,11 @@ export default function ChatPage() {
         }
 
         if (!isMounted) return
-        await ensureProfileForUser(user.id)
+        const profile = await getProfileByUserId(user.id)
+        if (!profile) {
+          router.replace('/complete-profile')
+          return
+        }
         setUserId(user.id)
 
         const { data, error: messagesError } = await supabase

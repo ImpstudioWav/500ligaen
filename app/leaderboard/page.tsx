@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { ensureProfileForUser, getUsernameMap, shortenUserId } from '@/lib/profiles'
+import { getProfileByUserId, getUsernameMap, shortenUserId } from '@/lib/profiles'
 
 type LeaderboardRow = {
   id: string
@@ -32,7 +32,11 @@ export default function LeaderboardPage() {
           router.replace('/login')
           return
         }
-        await ensureProfileForUser(user.id)
+        const profile = await getProfileByUserId(user.id)
+        if (!profile) {
+          router.replace('/complete-profile')
+          return
+        }
 
         const { data, error: leaderboardError } = await supabase
           .from('leaderboard')

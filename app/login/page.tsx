@@ -1,9 +1,10 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { ensureProfileForUser } from '@/lib/profiles'
+import { getProfileByUserId } from '@/lib/profiles'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -11,7 +12,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
 
   useEffect(() => {
     const checkUser = async () => {
@@ -20,12 +20,8 @@ export default function LoginPage() {
       } = await supabase.auth.getUser()
 
       if (user) {
-        try {
-          await ensureProfileForUser(user.id)
-        } catch {
-          // If profile creation fails, user can still continue.
-        }
-        router.replace('/chat')
+        const profile = await getProfileByUserId(user.id)
+        router.replace(profile ? '/chat' : '/complete-profile')
       }
     }
 
@@ -35,11 +31,9 @@ export default function LoginPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        void ensureProfileForUser(session.user.id)
-          .catch(() => undefined)
-          .finally(() => {
-            router.replace('/chat')
-          })
+        void getProfileByUserId(session.user.id).then((profile) => {
+          router.replace(profile ? '/chat' : '/complete-profile')
+        })
       }
     })
 
@@ -52,7 +46,6 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
-    setMessage('')
 
     const { error: loginError } = await supabase.auth.signInWithPassword({
       email,
@@ -70,54 +63,18 @@ export default function LoginPage() {
       data: { user },
     } = await supabase.auth.getUser()
     if (user) {
-      try {
-        await ensureProfileForUser(user.id)
-      } catch {
-        // If profile creation fails, user can still continue.
-      }
-    }
-
-    router.replace('/chat')
-  }
-
-  const handleSignUp = async () => {
-    setLoading(true)
-    setError('')
-    setMessage('')
-
-    const { error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-    })
-
-    setLoading(false)
-
-    if (signUpError) {
-      setError(signUpError.message)
+      const profile = await getProfileByUserId(user.id)
+      router.replace(profile ? '/chat' : '/complete-profile')
       return
     }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (user) {
-      try {
-        await ensureProfileForUser(user.id)
-      } catch {
-        // If profile creation fails, user can still continue.
-      }
-    }
-
-    setMessage('Bruker opprettet. Sjekk e-post for bekreftelse hvis aktivert.')
+    setError('Kunne ikke hente brukerprofil. Prøv igjen.')
   }
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10">
       <div className="mx-auto w-full max-w-md rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-2xl font-semibold text-slate-900">Logg inn</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Logg inn eller opprett konto for 500ligaen.
-        </p>
+        <p className="mt-1 text-sm text-slate-600">Logg inn med e-post og passord.</p>
 
         <form onSubmit={handleLogin} className="mt-6 space-y-4">
           <div>
@@ -157,11 +114,6 @@ export default function LoginPage() {
           {error ? (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
           ) : null}
-          {message ? (
-            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              {message}
-            </p>
-          ) : null}
 
           <div className="space-y-2 pt-2">
             <button
@@ -171,16 +123,14 @@ export default function LoginPage() {
             >
               {loading ? 'Jobber...' : 'Logg inn'}
             </button>
-
-            <button
-              type="button"
-              onClick={handleSignUp}
-              disabled={loading}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? 'Jobber...' : 'Opprett konto'}
-            </button>
           </div>
+
+          <p className="text-center text-sm text-slate-600">
+            Har du ikke konto?{' '}
+            <Link href="/signup" className="font-medium text-slate-900 underline">
+              Opprett konto
+            </Link>
+          </p>
         </form>
       </div>
     </main>

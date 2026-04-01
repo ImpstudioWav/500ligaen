@@ -3,6 +3,12 @@ import { supabase } from '@/lib/supabase'
 type ProfileRow = {
   id: string
   username: string | null
+  created_at?: string
+}
+
+type DbErrorLike = {
+  code?: string
+  message?: string
 }
 
 export const shortenUserId = (userId: string) => {
@@ -45,6 +51,62 @@ export const ensureProfileForUser = async (userId: string) => {
   }
 
   return generatedUsername
+}
+
+export const isUsernameTakenError = (error: unknown) => {
+  const dbError = error as DbErrorLike
+  return (
+    dbError?.code === '23505' ||
+    dbError?.message?.toLowerCase().includes('duplicate key') ||
+    dbError?.message?.toLowerCase().includes('profiles_username_key')
+  )
+}
+
+export const createProfileWithUsername = async (userId: string, username: string) => {
+  const cleanedUsername = username.trim().toLowerCase()
+
+  const { error } = await supabase.from('profiles').upsert(
+    {
+      id: userId,
+      username: cleanedUsername,
+    },
+    { onConflict: 'id' }
+  )
+
+  if (error) {
+    throw error
+  }
+
+  return cleanedUsername
+}
+
+export const getProfileByUserId = async (userId: string) => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, username, created_at')
+    .eq('id', userId)
+    .maybeSingle<ProfileRow>()
+
+  if (error) {
+    throw error
+  }
+
+  return data
+}
+
+export const isUsernameAvailable = async (username: string) => {
+  const cleanedUsername = username.trim().toLowerCase()
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('username', cleanedUsername)
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  return !data
 }
 
 export const getUsernameMap = async (userIds: string[]) => {
