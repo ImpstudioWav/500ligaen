@@ -7,42 +7,98 @@ import { getProfileByUserId } from '@/lib/profiles'
 
 export default function AuthCallbackPage() {
   const router = useRouter()
-  const [message, setMessage] = useState('Sjekker innlogging...')
+  const [message, setMessage] = useState('Bekrefter konto...')
 
   useEffect(() => {
+    const failureMessage = 'Kunne ikke bekrefte kontoen. Prøv å logge inn igjen.'
+    const expiredLinkMessage = 'Bekreftelseslenken er ugyldig eller utløpt. Be om en ny e-post.'
+    let isActive = true
+
     const resolveAuthRedirect = async () => {
-      const url = new URL(window.location.href)
-      const code = url.searchParams.get('code')
+      try {
+        const url = new URL(window.location.href)
+        const code = url.searchParams.get('code')
+        const queryErrorCode = url.searchParams.get('error_code')
+        const queryDescription = url.searchParams.get('error_description')?.toLowerCase() ?? ''
+        const hashParams = new URLSearchParams(window.location.hash.replace('#', ''))
+        const hashErrorCode = hashParams.get('error_code')
+        const hashDescription = hashParams.get('error_description')?.toLowerCase() ?? ''
 
-      if (code) {
-        await supabase.auth.exchangeCodeForSession(code)
+        const hasExpiredOrInvalidLink =
+          queryErrorCode === 'otp_expired' ||
+          hashErrorCode === 'otp_expired' ||
+          queryDescription.includes('invalid') ||
+          queryDescription.includes('expired') ||
+          hashDescription.includes('invalid') ||
+          hashDescription.includes('expired')
+
+        if (hasExpiredOrInvalidLink) {
+          if (isActive) {
+            setMessage(expiredLinkMessage)
+          }
+          return
+        }
+
+        if (code) {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+          if (exchangeError) {
+            throw exchangeError
+          }
+        }
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser()
+
+        if (userError) {
+          throw userError
+        }
+
+        if (!user) {
+          if (isActive) {
+            setMessage(failureMessage)
+          }
+          return
+        }
+
+        const profile = await getProfileByUserId(user.id)
+        isActive = false
+        router.replace(profile ? '/chat' : '/complete-profile')
+      } catch {
+        if (isActive) {
+          setMessage(failureMessage)
+        }
       }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) {
-        setMessage('Venter på bekreftet innlogging...')
-        return
-      }
-
-      const profile = await getProfileByUserId(user.id)
-      router.replace(profile ? '/chat' : '/complete-profile')
     }
 
     void resolveAuthRedirect()
+
+    const timeout = setTimeout(() => {
+      if (isActive) {
+        setMessage(failureMessage)
+      }
+    }, 15000)
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session?.user) return
-      void getProfileByUserId(session.user.id).then((profile) => {
-        router.replace(profile ? '/chat' : '/complete-profile')
-      })
+      void getProfileByUserId(session.user.id)
+        .then((profile) => {
+          isActive = false
+          router.replace(profile ? '/chat' : '/complete-profile')
+        })
+        .catch(() => {
+          if (isActive) {
+            setMessage(failureMessage)
+          }
+        })
     })
 
     return () => {
+      isActive = false
+      clearTimeout(timeout)
       subscription.unsubscribe()
     }
   }, [router])

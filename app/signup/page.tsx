@@ -7,8 +7,6 @@ import { supabase } from '@/lib/supabase'
 import { getProfileByUserId } from '@/lib/profiles'
 
 const duplicateEmailMessage = 'E-post er allerede i bruk'
-const pendingConfirmationMessage =
-  'Hvis e-posten er ny, har vi sendt deg en bekreftelsesmail. Hvis du allerede har konto, logg inn i stedet.'
 
 const isDuplicateEmailError = (message: string) => {
   const normalized = message.toLowerCase()
@@ -26,7 +24,6 @@ export default function SignUpPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
 
   useEffect(() => {
     const checkUser = async () => {
@@ -59,6 +56,7 @@ export default function SignUpPage() {
 
   const handleSignUp = async (e: FormEvent) => {
     e.preventDefault()
+    const normalizedEmail = email.trim().toLowerCase()
 
     if (password !== confirmPassword) {
       setError('Passordene må være like.')
@@ -67,10 +65,9 @@ export default function SignUpPage() {
 
     setLoading(true)
     setError('')
-    setMessage('')
 
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email,
+      email: normalizedEmail,
       password,
       options: {
         emailRedirectTo: 'http://localhost:3000/auth/callback',
@@ -100,7 +97,7 @@ export default function SignUpPage() {
     const session = signUpData.session ?? (await supabase.auth.getSession()).data.session
     if (!session?.user) {
       setLoading(false)
-      setMessage(pendingConfirmationMessage)
+      router.replace('/check-email')
       return
     }
     setLoading(false)
@@ -166,11 +163,6 @@ export default function SignUpPage() {
 
           {error ? (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-          ) : null}
-          {message ? (
-            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              {message}
-            </p>
           ) : null}
 
           <button
