@@ -3,13 +3,13 @@ import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { computeTeamScore } from '@/lib/scoring'
 
-async function hasValidUserBearer(request: Request): Promise<boolean> {
+async function getUserIdFromBearer(request: Request): Promise<string | null> {
   const authHeader = request.headers.get('authorization')
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null
-  if (!token) return false
+  if (!token) return null
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !anon) return false
+  if (!url || !anon) return null
   const authClient = createClient(url, anon, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   })
@@ -17,7 +17,30 @@ async function hasValidUserBearer(request: Request): Promise<boolean> {
     data: { user },
     error,
   } = await authClient.auth.getUser()
-  return !error && !!user
+  if (error || !user) return null
+  return user.id
+}
+
+/** Secret header match OR logged-in user with profiles.is_admin = true. Never "open" when env secret is missing. */
+async function isRecalcAuthorized(request: Request): Promise<boolean> {
+  const secret = process.env.RECALCULATE_SCORES_SECRET
+  const header = request.headers.get('x-recalc-secret')
+  if (secret && header === secret) {
+    return true
+  }
+
+  const userId = await getUserIdFromBearer(request)
+  if (!userId) return false
+
+  const supabase = getSupabaseAdmin()
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('is_admin')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (error || !profile) return false
+  return (profile as { is_admin: boolean | null }).is_admin === true
 }
 
 type StandingRow = {
@@ -45,30 +68,32 @@ function parseSeason(value: unknown): number {
   return 2026
 }
 
+function parseLeagueId(body: Record<string, unknown>): string | null {
+  const raw = body.leagueId ?? body.league_id
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 export async function POST(request: Request) {
-  const secret = process.env.RECALCULATE_SCORES_SECRET
-  let authorized = false
-  if (secret) {
-    const header = request.headers.get('x-recalc-secret')
-    if (header === secret) {
-      authorized = true
-    } else {
-      authorized = await hasValidUserBearer(request)
-    }
-  } else {
-    authorized = true
-  }
+  const authorized = await isRecalcAuthorized(request)
   if (!authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  let season: number
+  let body: Record<string, unknown> = {}
   try {
-    const body = await request.json().catch(() => ({}))
-    season = parseSeason(body.season)
+    body = (await request.json()) as Record<string, unknown>
   } catch {
-    season = 2026
+    body = {}
   }
+
+  const leagueId = parseLeagueId(body)
+  if (!leagueId) {
+    return NextResponse.json({ error: 'leagueId is required' }, { status: 400 })
+  }
+
+  const season = parseSeason(body.season)
 
   try {
     const supabase = getSupabaseAdmin()
@@ -76,6 +101,7 @@ export async function POST(request: Request) {
     const { data: standings, error: standingsError } = await supabase
       .from('standings')
       .select('team_name, actual_position, season')
+      .eq('league_id', leagueId)
       .eq('season', season)
 
     if (standingsError) {
@@ -84,7 +110,9 @@ export async function POST(request: Request) {
 
     if (!standings?.length) {
       return NextResponse.json(
-        { error: `Ingen tabellrad funnet for season=${season}` },
+        {
+          error: `Ingen tabell funnet for leagueId=${leagueId}, season=${season}`,
+        },
         { status: 400 }
       )
     }
@@ -92,6 +120,7 @@ export async function POST(request: Request) {
     const { data: predictions, error: predictionsError } = await supabase
       .from('predictions')
       .select('user_id, team_name, predicted_position')
+      .eq('league_id', leagueId)
 
     if (predictionsError) {
       return NextResponse.json({ error: predictionsError.message }, { status: 500 })
@@ -110,6 +139,7 @@ export async function POST(request: Request) {
     }
 
     const scoreRows: Array<{
+      league_id: string
       user_id: string
       team_name: string
       predicted_position: number
@@ -133,6 +163,7 @@ export async function POST(request: Request) {
           actual
         )
         scoreRows.push({
+          league_id: leagueId,
           user_id: userId,
           team_name: pred.team_name,
           predicted_position: pred.predicted_position,
@@ -147,7 +178,11 @@ export async function POST(request: Request) {
       }
     }
 
-    const { error: deleteError } = await supabase.from('score_details').delete().eq('season', season)
+    const { error: deleteError } = await supabase
+      .from('score_details')
+      .delete()
+      .eq('league_id', leagueId)
+      .eq('season', season)
 
     if (deleteError) {
       return NextResponse.json({ error: deleteError.message }, { status: 500 })
@@ -170,15 +205,17 @@ export async function POST(request: Request) {
     }
 
     const leaderboardUpserts = Array.from(totalsByUser.entries()).map(([user_id, points]) => ({
+      league_id: leagueId,
       user_id,
       points,
       updated_at: new Date().toISOString(),
     }))
 
     if (leaderboardUpserts.length > 0) {
-      const { error: leaderboardError } = await supabase
-        .from('leaderboard')
-        .upsert(leaderboardUpserts, { onConflict: 'user_id' })
+      const { error: leaderboardError } = await supabase.from('leaderboard').upsert(
+        leaderboardUpserts,
+        { onConflict: 'league_id,user_id' }
+      )
 
       if (leaderboardError) {
         return NextResponse.json({ error: leaderboardError.message }, { status: 500 })
@@ -186,6 +223,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
+      leagueId,
       season,
       teamsInStandings: standings.length,
       scoreDetailRows: scoreRows.length,

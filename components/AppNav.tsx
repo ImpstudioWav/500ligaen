@@ -8,6 +8,7 @@ const NAV_LINKS = [
   { href: '/predictions', label: 'Predictions' },
   { href: '/leaderboard', label: 'Leaderboard' },
   { href: '/my-results', label: 'My Results' },
+  { href: '/leagues', label: 'Leagues' },
   { href: '/profile', label: 'Profile' },
 ] as const
 
@@ -25,7 +26,11 @@ export function AppNav({ className = '' }: AppNavProps) {
     >
       <ul className="flex gap-1 overflow-x-auto py-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:justify-center [&::-webkit-scrollbar]:hidden">
         {NAV_LINKS.map(({ href, label }) => {
-          const active = pathname === href
+          const active =
+            href === '/leaderboard'
+              ? pathname === '/leaderboard' ||
+                /\/league\/[^/]+\/leaderboard\/?$/.test(pathname)
+              : pathname === href
           return (
             <li key={href} className="shrink-0">
               <Link

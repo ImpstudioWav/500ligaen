@@ -45,7 +45,6 @@ export default function AdminStandingsPage() {
   const [positions, setPositions] = useState<PositionsMap>(emptyPositions)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [recalculating, setRecalculating] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
@@ -215,49 +214,6 @@ export default function AdminStandingsPage() {
     setMessage('Tabell lagret.')
   }
 
-  const handleRecalculate = async () => {
-    setError('')
-    setMessage('')
-    setRecalculating(true)
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-
-    try {
-      const res = await fetch('/api/recalculate-scores', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {}),
-        },
-        body: JSON.stringify({ season: SEASON }),
-      })
-      const json = (await res.json()) as {
-        error?: string
-        usersUpdated?: number
-        scoreDetailRows?: number
-        teamsInStandings?: number
-      }
-
-      if (!res.ok) {
-        setError(json.error ?? 'Kunne ikke beregne poeng.')
-      } else {
-        const users = json.usersUpdated ?? 0
-        const rows = json.scoreDetailRows ?? 0
-        setMessage(
-          `Poeng beregnet. ${users} bruker(e) oppdatert i leaderboard (${rows} detaljlinjer).`
-        )
-      }
-    } catch {
-      setError('Nettverksfeil ved beregning.')
-    } finally {
-      setRecalculating(false)
-    }
-  }
-
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6">
       <div className="mx-auto w-full max-w-md space-y-3">
@@ -317,14 +273,14 @@ export default function AdminStandingsPage() {
           <div className="mt-4 border-t border-slate-200 pt-4">
             <button
               type="button"
-              onClick={handleRecalculate}
-              disabled={recalculating || loading || !tableComplete}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled
+              className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-400"
             >
-              {recalculating ? 'Beregner...' : 'Beregn poeng'}
+              Beregn poeng
             </button>
             <p className="mt-2 text-center text-xs text-slate-500">
-              Oppdaterer score_details og leaderboard for sesong {SEASON}.
+              Poengberegning skjer per liga. Bruk liga-admin under{' '}
+              <span className="whitespace-nowrap">/league/[id]/admin/standings</span>.
             </p>
           </div>
         </div>
