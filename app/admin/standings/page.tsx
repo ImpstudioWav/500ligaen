@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AppNav } from '@/components/AppNav'
 import { supabase } from '@/lib/supabase'
+import { getProfileByUserId } from '@/lib/profiles'
 
 const SEASON = 2026
 
@@ -58,6 +59,17 @@ export default function AdminStandingsPage() {
 
       if (userError || !user) {
         router.replace('/login')
+        return
+      }
+
+      const profile = await getProfileByUserId(user.id)
+      if (!profile) {
+        router.replace('/complete-profile')
+        return
+      }
+
+      if (!profile.is_admin) {
+        router.replace('/chat')
         return
       }
 

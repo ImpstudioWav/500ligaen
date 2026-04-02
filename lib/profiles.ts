@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 type ProfileRow = {
   id: string
   username: string | null
+  is_admin?: boolean | null
   created_at?: string
 }
 
@@ -83,7 +84,7 @@ export const createProfileWithUsername = async (userId: string, username: string
 export const getProfileByUserId = async (userId: string) => {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, created_at')
+    .select('id, username, is_admin, created_at')
     .eq('id', userId)
     .maybeSingle<ProfileRow>()
 

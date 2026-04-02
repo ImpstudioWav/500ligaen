@@ -123,6 +123,12 @@ export default function LoginPage() {
             >
               {loading ? 'Jobber...' : 'Logg inn'}
             </button>
+
+            <p className="text-center text-sm text-slate-600">
+              <Link href="/forgot-password" className="font-medium text-slate-900 underline">
+                Glemt passord?
+              </Link>
+            </p>
           </div>
 
           <p className="text-center text-sm text-slate-600">
