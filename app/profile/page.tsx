@@ -15,6 +15,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [loggingOut, setLoggingOut] = useState(false)
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -98,6 +99,12 @@ export default function ProfilePage() {
     setMessage('Brukernavn lagret.')
   }
 
+  const handleLogout = async () => {
+    setLoggingOut(true)
+    await supabase.auth.signOut()
+    router.replace('/login')
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6">
       <div className="mx-auto w-full max-w-md space-y-3">
@@ -105,15 +112,6 @@ export default function ProfilePage() {
       <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-2xl font-semibold text-slate-900">Profil</h1>
         <p className="mt-1 text-sm text-slate-600">Se og oppdater brukernavnet ditt.</p>
-
-        <div className="mt-4">
-          <Link
-            href="/change-password"
-            className="inline-flex w-full items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 transition hover:bg-slate-50"
-          >
-            Endre passord
-          </Link>
-        </div>
 
         {loading ? (
           <p className="mt-6 text-sm text-slate-500">Laster profil...</p>
@@ -156,8 +154,31 @@ export default function ProfilePage() {
             >
               {saving ? 'Lagrer...' : 'Lagre brukernavn'}
             </button>
+
+            <Link
+              href="/change-password"
+              className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
+            >
+              Endre passord
+            </Link>
           </form>
         )}
+
+        {!loading ? (
+          <div className="mt-8 border-t border-slate-200 pt-6">
+            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+              Konto
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              disabled={loggingOut}
+              className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-800 transition hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loggingOut ? 'Logger ut...' : 'Logg ut'}
+            </button>
+          </div>
+        ) : null}
       </div>
       </div>
     </main>

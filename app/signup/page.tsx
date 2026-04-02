@@ -33,7 +33,7 @@ export default function SignUpPage() {
 
       if (user) {
         const profile = await getProfileByUserId(user.id)
-        router.replace(profile ? '/chat' : '/complete-profile')
+        router.replace(profile ? '/leagues' : '/complete-profile')
       }
     }
 
@@ -44,7 +44,7 @@ export default function SignUpPage() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         void getProfileByUserId(session.user.id).then((profile) => {
-          router.replace(profile ? '/chat' : '/complete-profile')
+          router.replace(profile ? '/leagues' : '/complete-profile')
         })
       }
     })

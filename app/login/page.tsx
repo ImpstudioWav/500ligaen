@@ -21,7 +21,7 @@ export default function LoginPage() {
 
       if (user) {
         const profile = await getProfileByUserId(user.id)
-        router.replace(profile ? '/chat' : '/complete-profile')
+        router.replace(profile ? '/leagues' : '/complete-profile')
       }
     }
 
@@ -32,7 +32,7 @@ export default function LoginPage() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         void getProfileByUserId(session.user.id).then((profile) => {
-          router.replace(profile ? '/chat' : '/complete-profile')
+          router.replace(profile ? '/leagues' : '/complete-profile')
         })
       }
     })
@@ -64,7 +64,7 @@ export default function LoginPage() {
     } = await supabase.auth.getUser()
     if (user) {
       const profile = await getProfileByUserId(user.id)
-      router.replace(profile ? '/chat' : '/complete-profile')
+      router.replace(profile ? '/leagues' : '/complete-profile')
       return
     }
     setError('Kunne ikke hente brukerprofil. Prøv igjen.')

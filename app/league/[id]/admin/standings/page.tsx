@@ -92,7 +92,7 @@ export default function LeagueAdminStandingsPage() {
       }
 
       if (!profile.is_admin) {
-        router.replace('/chat')
+        router.replace('/leagues')
         return
       }
 

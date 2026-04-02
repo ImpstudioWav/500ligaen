@@ -64,7 +64,7 @@ export default function AuthCallbackPage() {
 
         const profile = await getProfileByUserId(user.id)
         isActive = false
-        router.replace(profile ? '/chat' : '/complete-profile')
+        router.replace(profile ? '/leagues' : '/complete-profile')
       } catch {
         if (isActive) {
           setMessage(failureMessage)
@@ -87,7 +87,7 @@ export default function AuthCallbackPage() {
       void getProfileByUserId(session.user.id)
         .then((profile) => {
           isActive = false
-          router.replace(profile ? '/chat' : '/complete-profile')
+          router.replace(profile ? '/leagues' : '/complete-profile')
         })
         .catch(() => {
           if (isActive) {

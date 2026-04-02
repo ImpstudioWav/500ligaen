@@ -19,7 +19,7 @@ export default function ForgotPasswordPage() {
         data: { user },
       } = await supabase.auth.getUser()
       if (user) {
-        router.replace('/chat')
+        router.replace('/leagues')
       }
     }
     void checkUser()

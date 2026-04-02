@@ -70,7 +70,7 @@ export default function AdminNewLeaguePage() {
       }
 
       if (!profile.is_admin) {
-        router.replace('/chat')
+        router.replace('/leagues')
         return
       }
 

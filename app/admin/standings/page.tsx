@@ -68,7 +68,7 @@ export default function AdminStandingsPage() {
       }
 
       if (!profile.is_admin) {
-        router.replace('/chat')
+        router.replace('/leagues')
         return
       }
 

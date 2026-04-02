@@ -27,7 +27,7 @@ export default function CompleteProfilePage() {
 
       const profile = await getProfileByUserId(user.id)
       if (profile) {
-        router.replace('/chat')
+        router.replace('/leagues')
         return
       }
 
@@ -53,7 +53,7 @@ export default function CompleteProfilePage() {
 
     try {
       await createProfileWithUsername(userId, cleanedUsername)
-      router.replace('/chat')
+      router.replace('/leagues')
     } catch (saveError) {
       if (isUsernameTakenError(saveError)) {
         setError('Brukernavnet er allerede i bruk. Velg et annet.')
