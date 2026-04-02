@@ -5,12 +5,18 @@ import { usePathname } from 'next/navigation'
 
 const NAV_LINKS = [
   { href: '/chat', label: 'Chat' },
-  { href: '/predictions', label: 'Predictions' },
-  { href: '/leaderboard', label: 'Leaderboard' },
-  { href: '/my-results', label: 'My Results' },
   { href: '/leagues', label: 'Leagues' },
   { href: '/profile', label: 'Profile' },
 ] as const
+
+type NavHref = (typeof NAV_LINKS)[number]['href']
+
+function isNavActive(pathname: string, href: NavHref): boolean {
+  if (href === '/leagues') {
+    return pathname === '/leagues' || pathname.startsWith('/league/')
+  }
+  return pathname === href
+}
 
 type AppNavProps = {
   className?: string
@@ -26,11 +32,7 @@ export function AppNav({ className = '' }: AppNavProps) {
     >
       <ul className="flex gap-1 overflow-x-auto py-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:justify-center [&::-webkit-scrollbar]:hidden">
         {NAV_LINKS.map(({ href, label }) => {
-          const active =
-            href === '/leaderboard'
-              ? pathname === '/leaderboard' ||
-                /\/league\/[^/]+\/leaderboard\/?$/.test(pathname)
-              : pathname === href
+          const active = isNavActive(pathname, href)
           return (
             <li key={href} className="shrink-0">
               <Link

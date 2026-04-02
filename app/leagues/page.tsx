@@ -26,6 +26,7 @@ export default function LeaguesPage() {
   const [joining, setJoining] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
 
   const refreshLeagues = useCallback(async (uid: string) => {
     const { data: members, error: membersError } = await supabase
@@ -80,6 +81,7 @@ export default function LeaguesPage() {
         return
       }
 
+      setIsAdmin(profile.is_admin === true)
       setUserId(user.id)
       await refreshLeagues(user.id)
       setLoading(false)
@@ -173,8 +175,21 @@ export default function LeaguesPage() {
         <AppNav />
 
         <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <h1 className="text-2xl font-semibold text-slate-900">Ligaer</h1>
-          <p className="mt-1 text-sm text-slate-600">Bli med i en liga med join-kode.</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-900">Ligaer</h1>
+              <p className="mt-1 text-sm text-slate-600">Bli med i en liga med join-kode.</p>
+            </div>
+            {!loading && isAdmin ? (
+              <Link
+                href="/admin/leagues/new"
+                prefetch
+                className="inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 transition hover:bg-slate-50"
+              >
+                Opprett liga
+              </Link>
+            ) : null}
+          </div>
 
           {loading ? (
             <p className="mt-6 text-sm text-slate-500">Laster...</p>

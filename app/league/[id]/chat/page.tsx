@@ -12,6 +12,7 @@ type Message = {
   user_id: string
   content: string
   created_at: string
+  league_id?: string | null
 }
 
 export default function LeagueChatPage() {
@@ -101,7 +102,7 @@ export default function LeagueChatPage() {
 
       const { data, error: messagesError } = await supabase
         .from('messages')
-        .select('id, user_id, content, created_at')
+        .select('id, user_id, content, created_at, league_id')
         .eq('league_id', leagueId)
         .order('created_at', { ascending: true })
 
@@ -130,6 +131,7 @@ export default function LeagueChatPage() {
           },
           (payload) => {
             const newMessage = payload.new as Message
+            if (newMessage.league_id !== leagueId) return
             setMessages((prev) => addMessageIfMissing(prev, newMessage))
             void getUsernameMap([newMessage.user_id]).then((usernames) => {
               setUsernameMap((prev) => ({ ...prev, ...usernames }))
@@ -167,7 +169,7 @@ export default function LeagueChatPage() {
         content: trimmed,
         league_id: leagueId,
       })
-      .select('id, user_id, content, created_at')
+      .select('id, user_id, content, created_at, league_id')
       .single()
 
     setSending(false)

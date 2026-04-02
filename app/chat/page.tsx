@@ -11,6 +11,7 @@ type Message = {
   user_id: string
   content: string
   created_at: string
+  league_id?: string | null
 }
 
 export default function ChatPage() {
@@ -59,7 +60,8 @@ export default function ChatPage() {
 
         const { data, error: messagesError } = await supabase
           .from('messages')
-          .select('id, user_id, content, created_at')
+          .select('id, user_id, content, created_at, league_id')
+          .is('league_id', null)
           .order('created_at', { ascending: true })
 
         if (messagesError) {
@@ -74,12 +76,18 @@ export default function ChatPage() {
         setLoadingMessages(false)
 
         const channel = supabase
-          .channel('public:messages')
+          .channel('public:messages:global')
           .on(
             'postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'messages' },
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'messages',
+              filter: 'league_id=is.null',
+            },
             (payload) => {
               const newMessage = payload.new as Message
+              if (newMessage.league_id != null) return
               setMessages((prev) => addMessageIfMissing(prev, newMessage))
               void getUsernameMap([newMessage.user_id]).then((usernames) => {
                 setUsernameMap((prev) => ({ ...prev, ...usernames }))
@@ -123,8 +131,9 @@ export default function ChatPage() {
       .insert({
         user_id: userId,
         content: trimmed,
+        league_id: null,
       })
-      .select('id, user_id, content, created_at')
+      .select('id, user_id, content, created_at, league_id')
       .single()
 
     setSending(false)
