@@ -1,10 +1,15 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getProfileByUserId, getUsernameMap, shortenUserId } from '@/lib/profiles'
+import {
+  type ChatUserInfo,
+  getProfileByUserId,
+  getUsernameMap,
+  shortenUserId,
+} from '@/lib/profiles'
 
 type Message = {
   id: string
@@ -22,6 +27,17 @@ type Props = {
   fullChatHref?: string
 }
 
+/** Supabase reuses channel instances by name; .on() after .subscribe() throws — remove stale topics first. */
+function removeLeagueMessagesRealtimeChannel(forLeagueId: string) {
+  const channelName = `league-messages:${forLeagueId}`
+  const topic = `realtime:${channelName}`
+  for (const ch of supabase.getChannels()) {
+    if (ch.topic === topic) {
+      void supabase.removeChannel(ch)
+    }
+  }
+}
+
 export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
   const router = useRouter()
   const [messages, setMessages] = useState<Message[]>([])
@@ -30,8 +46,10 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
   const [loadingMessages, setLoadingMessages] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
-  const [usernameMap, setUsernameMap] = useState<Record<string, string>>({})
+  const [userInfoMap, setUserInfoMap] = useState<Record<string, ChatUserInfo>>({})
   const [resolvedLeagueName, setResolvedLeagueName] = useState('')
+
+  const scrollContainerRef = useRef<HTMLElement>(null)
 
   const addMessageIfMissing = (prev: Message[], incoming: Message) => {
     if (prev.some((message) => message.id === incoming.id)) {
@@ -44,7 +62,10 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
 
   useEffect(() => {
     let isMounted = true
-    let removeChannel: (() => void) | undefined
+
+    if (leagueId) {
+      removeLeagueMessagesRealtimeChannel(leagueId)
+    }
 
     const loadChat = async () => {
       setError('')
@@ -115,44 +136,46 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
         const fetchedMessages = data ?? []
         if (isMounted) {
           setMessages(fetchedMessages)
-          const usernames = await getUsernameMap(fetchedMessages.map((m) => m.user_id))
-          if (isMounted) setUsernameMap(usernames)
+          const userInfos = await getUsernameMap(fetchedMessages.map((m) => m.user_id))
+          if (isMounted) setUserInfoMap(userInfos)
         }
       }
 
       if (isMounted) setLoadingMessages(false)
 
-      const channel = supabase
-        .channel(`league-messages:${leagueId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `league_id=eq.${leagueId}`,
-          },
-          (payload) => {
-            const newMessage = payload.new as Message
-            if (newMessage.league_id !== leagueId) return
-            setMessages((prev) => addMessageIfMissing(prev, newMessage))
-            void getUsernameMap([newMessage.user_id]).then((usernames) => {
-              setUsernameMap((prev) => ({ ...prev, ...usernames }))
-            })
-          }
-        )
-        .subscribe()
+      if (!isMounted) return
 
-      removeChannel = () => {
-        void supabase.removeChannel(channel)
-      }
+      removeLeagueMessagesRealtimeChannel(leagueId)
+
+      const channelName = `league-messages:${leagueId}`
+      const channel = supabase.channel(channelName).on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `league_id=eq.${leagueId}`,
+        },
+        (payload) => {
+          const newMessage = payload.new as Message
+          if (newMessage.league_id !== leagueId) return
+          setMessages((prev) => addMessageIfMissing(prev, newMessage))
+          void getUsernameMap([newMessage.user_id]).then((infos) => {
+            setUserInfoMap((prev) => ({ ...prev, ...infos }))
+          })
+        }
+      )
+
+      channel.subscribe()
     }
 
     void loadChat()
 
     return () => {
       isMounted = false
-      removeChannel?.()
+      if (leagueId) {
+        removeLeagueMessagesRealtimeChannel(leagueId)
+      }
     }
   }, [leagueId, router])
 
@@ -185,6 +208,15 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
     setMessages((prev) => addMessageIfMissing(prev, data))
     setContent('')
   }
+
+  useLayoutEffect(() => {
+    if (loadingMessages) return
+
+    const el = scrollContainerRef.current
+    if (!el) return
+
+    el.scrollTop = el.scrollHeight
+  }, [loadingMessages, messages, userInfoMap])
 
   const outerClass =
     variant === 'page'
@@ -228,6 +260,7 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
       </div>
 
       <section
+        ref={scrollContainerRef}
         className={`min-h-0 flex-1 space-y-2.5 overflow-y-auto p-4 sm:space-y-3 ${
           variant === 'hub' ? 'bg-slate-50/60' : ''
         }`}
@@ -237,15 +270,27 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
         ) : messages.length === 0 ? (
           <p className="text-sm text-slate-500">Ingen meldinger i denne ligaen ennå.</p>
         ) : (
-          messages.map((message) => (
-            <article key={message.id} className="rounded-xl bg-slate-100 px-3 py-2">
-              <p className="text-sm text-slate-900">{message.content}</p>
-              <p className="mt-1 text-[11px] text-slate-500">
-                {usernameMap[message.user_id] ?? shortenUserId(message.user_id)} •{' '}
-                {new Date(message.created_at).toLocaleString('nb-NO')}
-              </p>
-            </article>
-          ))
+          messages.map((message) => {
+            const info = userInfoMap[message.user_id]
+            const label = info?.username ?? shortenUserId(message.user_id)
+            return (
+              <article key={message.id} className="rounded-xl bg-slate-100 px-3 py-2">
+                <p className="text-sm text-slate-900">{message.content}</p>
+                <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-500">
+                  <span className="inline-flex flex-wrap items-center gap-x-1.5">
+                    <span>{label}</span>
+                    {info?.isAdmin ? (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-amber-900">
+                        ADMIN
+                      </span>
+                    ) : null}
+                  </span>
+                  <span aria-hidden>•</span>
+                  <span>{new Date(message.created_at).toLocaleString('nb-NO')}</span>
+                </p>
+              </article>
+            )
+          })
         )}
       </section>
 

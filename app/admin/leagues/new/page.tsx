@@ -104,7 +104,7 @@ export default function AdminNewLeaguePage() {
       return
     }
     if (!trimmedJoin) {
-      setError('Join-kode er påkrevd.')
+      setError('Ligakode er påkrevd.')
       return
     }
 
@@ -131,7 +131,7 @@ export default function AdminNewLeaguePage() {
       .maybeSingle()
 
     if (existingCode) {
-      setError('Denne join-koden er allerede i bruk.')
+      setError('Denne ligakoden er allerede i bruk.')
       return
     }
 
@@ -168,7 +168,7 @@ export default function AdminNewLeaguePage() {
       setSaving(false)
       const msg = leagueError?.message ?? 'Kunne ikke opprette liga.'
       if (msg.toLowerCase().includes('duplicate') || leagueError?.code === '23505') {
-        setError('Join-kode eller slug er allerede i bruk.')
+        setError('Ligakode eller slug er allerede i bruk.')
       } else {
         setError(msg)
       }
@@ -223,7 +223,7 @@ export default function AdminNewLeaguePage() {
 
           <h1 className="mt-4 text-xl font-semibold text-slate-900">Ny liga</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Opprett liga, lag og join-kode. Du legges automatisk inn som medlem.
+            Opprett liga, lag og ligakode. Du legges automatisk inn som medlem.
           </p>
 
           {loading ? (
@@ -251,7 +251,7 @@ export default function AdminNewLeaguePage() {
 
               <div>
                 <label htmlFor="join-code" className="mb-1 block text-sm font-medium text-slate-700">
-                  Join-kode <span className="text-red-600">*</span>
+                  Ligakode <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="join-code"

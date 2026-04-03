@@ -3,7 +3,12 @@
 import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getProfileByUserId, getUsernameMap, shortenUserId } from '@/lib/profiles'
+import {
+  type ChatUserInfo,
+  getProfileByUserId,
+  getUsernameMap,
+  shortenUserId,
+} from '@/lib/profiles'
 
 type Message = {
   id: string
@@ -34,7 +39,7 @@ export function GlobalChatPanel({
   const [loadingMessages, setLoadingMessages] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
-  const [usernameMap, setUsernameMap] = useState<Record<string, string>>({})
+  const [userInfoMap, setUserInfoMap] = useState<Record<string, ChatUserInfo>>({})
 
   const scrollContainerRef = useRef<HTMLElement>(null)
 
@@ -101,8 +106,8 @@ export function GlobalChatPanel({
         ) as Message[]
         if (isMounted) {
           setMessages(fetchedMessages)
-          const usernames = await getUsernameMap(fetchedMessages.map((message) => message.user_id))
-          if (isMounted) setUsernameMap(usernames)
+          const userInfos = await getUsernameMap(fetchedMessages.map((message) => message.user_id))
+          if (isMounted) setUserInfoMap(userInfos)
         }
       }
 
@@ -126,8 +131,8 @@ export function GlobalChatPanel({
               if (isPreview) return next.slice(-previewCap)
               return next
             })
-            void getUsernameMap([newMessage.user_id]).then((usernames) => {
-              setUsernameMap((p) => ({ ...p, ...usernames }))
+            void getUsernameMap([newMessage.user_id]).then((infos) => {
+              setUserInfoMap((p) => ({ ...p, ...infos }))
             })
           }
         )
@@ -155,20 +160,42 @@ export function GlobalChatPanel({
     setSending(true)
     setError('')
 
-    const { data, error: insertError } = await supabase
-      .from('messages')
-      .insert({
-        user_id: userId,
-        content: trimmed,
-        league_id: null,
-      })
-      .select('id, user_id, content, created_at, league_id')
-      .single()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    const token = session?.access_token
+    if (!token) {
+      setSending(false)
+      setError('Fant ikke innlogging. Prøv å logge inn på nytt.')
+      return
+    }
+
+    const res = await fetch('/api/chat/send-global', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ content: trimmed }),
+    })
+
+    const payload = (await res.json().catch(() => ({}))) as {
+      error?: string
+      message?: Message
+      /** Present when send succeeded but global trim failed; safe to ignore in UI */
+      warning?: string
+    }
 
     setSending(false)
 
-    if (insertError) {
-      setError(insertError.message)
+    if (!res.ok) {
+      setError(payload.error || `Kunne ikke sende melding (HTTP ${res.status}).`)
+      return
+    }
+
+    const data = payload.message
+    if (!data) {
+      setError('Ugyldig svar fra server.')
       return
     }
 
@@ -195,14 +222,13 @@ export function GlobalChatPanel({
   }, [router])
 
   useLayoutEffect(() => {
-    if (!isPreview) return
     if (loadingMessages) return
 
     const el = scrollContainerRef.current
     if (!el) return
 
     el.scrollTop = el.scrollHeight
-  }, [isPreview, loadingMessages, messages, usernameMap])
+  }, [loadingMessages, messages, userInfoMap])
 
   let heightClasses: string
   if (isPreview) {
@@ -235,15 +261,27 @@ export function GlobalChatPanel({
         ) : messages.length === 0 ? (
           <p className="text-sm text-slate-500">Ingen meldinger ennå.</p>
         ) : (
-          messages.map((message) => (
-            <article key={message.id} className="rounded-xl bg-slate-100 px-3 py-2">
-              <p className="text-sm text-slate-900">{message.content}</p>
-              <p className="mt-1 text-[11px] text-slate-500">
-                {usernameMap[message.user_id] ?? shortenUserId(message.user_id)} •{' '}
-                {new Date(message.created_at).toLocaleString('nb-NO')}
-              </p>
-            </article>
-          ))
+          messages.map((message) => {
+            const info = userInfoMap[message.user_id]
+            const label = info?.username ?? shortenUserId(message.user_id)
+            return (
+              <article key={message.id} className="rounded-xl bg-slate-100 px-3 py-2">
+                <p className="text-sm text-slate-900">{message.content}</p>
+                <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-500">
+                  <span className="inline-flex flex-wrap items-center gap-x-1.5">
+                    <span>{label}</span>
+                    {info?.isAdmin ? (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-amber-900">
+                        ADMIN
+                      </span>
+                    ) : null}
+                  </span>
+                  <span aria-hidden>•</span>
+                  <span>{new Date(message.created_at).toLocaleString('nb-NO')}</span>
+                </p>
+              </article>
+            )
+          })
         )}
       </section>
 

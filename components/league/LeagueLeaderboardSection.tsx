@@ -4,7 +4,12 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getProfileByUserId, getUsernameMap, shortenUserId } from '@/lib/profiles'
+import {
+  type ChatUserInfo,
+  getProfileByUserId,
+  getUsernameMap,
+  shortenUserId,
+} from '@/lib/profiles'
 
 export type LeagueLeaderboardRow = {
   id: string
@@ -33,7 +38,7 @@ export function LeagueLeaderboardSection({
 }: Props) {
   const router = useRouter()
   const [rows, setRows] = useState<LeagueLeaderboardRow[]>([])
-  const [usernameMap, setUsernameMap] = useState<Record<string, string>>({})
+  const [usernameMap, setUsernameMap] = useState<Record<string, ChatUserInfo>>({})
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -200,7 +205,9 @@ export function LeagueLeaderboardSection({
     if (isSearching) {
       const q = searchTrimmed.toLowerCase()
       list = rankedRows.filter((row) => {
-        const label = (usernameMap[row.user_id] ?? shortenUserId(row.user_id)).toLowerCase()
+        const label = (
+          usernameMap[row.user_id]?.username ?? shortenUserId(row.user_id)
+        ).toLowerCase()
         return label.includes(q)
       })
     } else if (isPreview && previewRowLimit) {
@@ -285,7 +292,7 @@ export function LeagueLeaderboardSection({
                         <span
                           className={`min-w-0 truncate ${isYou ? 'font-semibold text-slate-900' : ''}`}
                         >
-                          {usernameMap[row.user_id] ?? shortenUserId(row.user_id)}
+                          {usernameMap[row.user_id]?.username ?? shortenUserId(row.user_id)}
                         </span>
                         {isYou ? (
                           <span className="shrink-0 rounded-md bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">

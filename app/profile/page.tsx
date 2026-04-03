@@ -16,6 +16,7 @@ export default function ProfilePage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loggingOut, setLoggingOut] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -41,6 +42,7 @@ export default function ProfilePage() {
           return
         }
         setUsername(profile.username ?? '')
+        setIsAdmin(profile.is_admin === true)
       } catch (profileError) {
         const msg =
           profileError instanceof Error ? profileError.message : 'Kunne ikke laste profil.'
@@ -177,6 +179,15 @@ export default function ProfilePage() {
             >
               {loggingOut ? 'Logger ut...' : 'Logg ut'}
             </button>
+            {isAdmin ? (
+              <Link
+                href="/admin"
+                prefetch
+                className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
+              >
+                Admin oversikt
+              </Link>
+            ) : null}
           </div>
         ) : null}
       </div>

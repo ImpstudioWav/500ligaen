@@ -110,23 +110,32 @@ export const isUsernameAvailable = async (username: string) => {
   return !data
 }
 
-export const getUsernameMap = async (userIds: string[]) => {
-  if (userIds.length === 0) return {} as Record<string, string>
+/** Display fields for chat and lists; from `profiles` (username + is_admin). */
+export type ChatUserInfo = {
+  username: string
+  isAdmin: boolean
+}
+
+export const getUsernameMap = async (
+  userIds: string[]
+): Promise<Record<string, ChatUserInfo>> => {
+  if (userIds.length === 0) return {}
 
   const uniqueUserIds = Array.from(new Set(userIds))
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username')
+    .select('id, username, is_admin')
     .in('id', uniqueUserIds)
 
   if (error) {
     throw error
   }
 
-  const map: Record<string, string> = {}
+  const map: Record<string, ChatUserInfo> = {}
   for (const profile of (data ?? []) as ProfileRow[]) {
-    if (profile.username) {
-      map[profile.id] = profile.username
+    map[profile.id] = {
+      username: profile.username?.trim() || shortenUserId(profile.id),
+      isAdmin: profile.is_admin === true,
     }
   }
 

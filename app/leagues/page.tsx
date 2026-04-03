@@ -85,6 +85,13 @@ export default function LeaguesPage() {
       setIsAdmin(profile.is_admin === true)
       setUserId(user.id)
       await refreshLeagues(user.id)
+      if (
+        typeof window !== 'undefined' &&
+        sessionStorage.getItem('leagueDeletedOk') === '1'
+      ) {
+        sessionStorage.removeItem('leagueDeletedOk')
+        setMessage('Ligaen ble slettet.')
+      }
       setLoading(false)
     }
 
@@ -112,7 +119,7 @@ export default function LeaguesPage() {
 
     const code = joinCode.trim()
     if (!code) {
-      setError('Skriv inn en join-kode.')
+      setError('Skriv inn en ligakode.')
       return
     }
 
@@ -181,7 +188,7 @@ export default function LeaguesPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h1 className="text-2xl font-semibold text-slate-900">Ligaer</h1>
-                  <p className="mt-1 text-sm text-slate-600">Bli med i en liga med join-kode.</p>
+                  <p className="mt-1 text-sm text-slate-600">Bli med i en liga med ligakode.</p>
                 </div>
                 {!loading && isAdmin ? (
                   <Link
@@ -232,7 +239,7 @@ export default function LeaguesPage() {
                         htmlFor="join-code"
                         className="mb-1 block text-sm font-medium text-slate-700"
                       >
-                        Join-kode
+                        Ligakode
                       </label>
                       <input
                         id="join-code"
@@ -242,7 +249,7 @@ export default function LeaguesPage() {
                         autoComplete="off"
                         disabled={joining}
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                        placeholder="Lim inn kode fra liga-admin"
+                        placeholder="Lim inn ligakode her"
                       />
                     </div>
 

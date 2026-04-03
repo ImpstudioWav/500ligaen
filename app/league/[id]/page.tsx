@@ -77,9 +77,14 @@ export default function LeagueDetailPage() {
   const [clockTick, setClockTick] = useState(0)
   const [joinCodeCopied, setJoinCodeCopied] = useState(false)
   const joinCodeCopyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [deleteLeagueError, setDeleteLeagueError] = useState('')
+  const [deletingLeague, setDeletingLeague] = useState(false)
+  const [deleteTypeConfirm, setDeleteTypeConfirm] = useState('')
 
   useEffect(() => {
     setJoinCodeCopied(false)
+    setDeleteTypeConfirm('')
+    setDeleteLeagueError('')
     if (joinCodeCopyResetRef.current) {
       clearTimeout(joinCodeCopyResetRef.current)
       joinCodeCopyResetRef.current = null
@@ -209,6 +214,57 @@ export default function LeagueDetailPage() {
     }
   }, [leagueId, router])
 
+  const handleDeleteLeague = async () => {
+    if (!leagueId || !league) return
+    if (deleteTypeConfirm !== 'DELETE') return
+
+    const name = (league.name || 'Liga').trim()
+    const ok = window.confirm(
+      `Slette «${name}»?\n\nLigaen og all tilhørende data (medlemmer, meldinger, prediksjoner, poeng m.m.) blir permanent slettet. Dette kan ikke angres.`
+    )
+    if (!ok) return
+
+    setDeleteLeagueError('')
+    setDeletingLeague(true)
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) {
+        setDeleteLeagueError('Fant ikke innlogging. Prøv å logge inn på nytt.')
+        setDeletingLeague(false)
+        return
+      }
+
+      const res = await fetch('/api/admin/delete-league', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ leagueId }),
+      })
+
+      const payload = (await res.json().catch(() => ({}))) as { error?: string }
+
+      if (!res.ok) {
+        setDeleteLeagueError(payload.error || `Kunne ikke slette (HTTP ${res.status}).`)
+        setDeletingLeague(false)
+        return
+      }
+
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('leagueDeletedOk', '1')
+      }
+      router.push('/leagues')
+    } catch {
+      setDeleteLeagueError('Nettverksfeil ved sletting. Prøv igjen.')
+      setDeletingLeague(false)
+    }
+  }
+
   const handleCopyJoinCode = async () => {
     const code = league?.join_code?.trim()
     if (!code) return
@@ -272,7 +328,7 @@ export default function LeagueDetailPage() {
                     </div>
                     <div className="mt-2 text-sm text-slate-800">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                        <span className="shrink-0 text-slate-600">Join-kode:</span>
+                        <span className="shrink-0 text-slate-600">Ligakode:</span>
                         <span className="inline-flex max-w-full min-w-0 items-center rounded-md bg-slate-100 px-2 py-0.5 font-mono text-sm font-semibold tracking-wide text-slate-900">
                           <span className="truncate">
                             {league.join_code?.trim() ? league.join_code.trim() : '—'}
@@ -426,6 +482,57 @@ export default function LeagueDetailPage() {
               />
             </div>
           </div>
+        ) : null}
+
+        {!loading && !error && league && isAdmin ? (
+          <section
+            aria-label="Admin — slett liga"
+            className="rounded-2xl border border-red-200/90 bg-red-50/40 p-4 sm:p-5"
+          >
+            <h2 className="text-sm font-semibold text-red-900">Faresone</h2>
+            <p className="mt-2 max-w-xl text-xs leading-relaxed text-red-950/80">
+              Sletting fjerner ligaen fra databasen. All tilhørende data slettes også — for eksempel
+              medlemmer, ligachat, prediksjoner, poeng, resultater og andre rader som er koblet til
+              ligaen (via sletteregler i databasen). Dette kan ikke angres.
+            </p>
+            <div className="mt-4 max-w-xl space-y-2">
+              <label
+                htmlFor="delete-league-confirm-input"
+                className="block text-xs font-medium text-red-950/90"
+              >
+                Bekreft ved å skrive{' '}
+                <span className="font-mono font-semibold tracking-wide text-red-900">DELETE</span>{' '}
+                (nøyaktig disse seks bokstavene, alle store)
+              </label>
+              <input
+                id="delete-league-confirm-input"
+                type="text"
+                name="delete-league-confirm"
+                autoComplete="off"
+                value={deleteTypeConfirm}
+                onChange={(e) => {
+                  setDeleteTypeConfirm(e.target.value)
+                  if (deleteLeagueError) setDeleteLeagueError('')
+                }}
+                disabled={deletingLeague}
+                placeholder="Skriv DELETE her"
+                className="w-full rounded-xl border border-red-200 bg-white px-3 py-2.5 font-mono text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:opacity-60"
+              />
+            </div>
+            {deleteLeagueError ? (
+              <p className="mt-3 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800">
+                {deleteLeagueError}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              disabled={deletingLeague || deleteTypeConfirm !== 'DELETE'}
+              onClick={() => void handleDeleteLeague()}
+              className="mt-4 w-full rounded-xl border border-red-300 bg-white px-4 py-2.5 text-sm font-medium text-red-800 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {deletingLeague ? 'Sletter...' : 'Slett liga'}
+            </button>
+          </section>
         ) : null}
       </div>
     </main>
