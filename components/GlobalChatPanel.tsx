@@ -40,6 +40,13 @@ export function GlobalChatPanel({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [userInfoMap, setUserInfoMap] = useState<Record<string, ChatUserInfo>>({})
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [clearPanelOpen, setClearPanelOpen] = useState(false)
+  const [clearTypeConfirm, setClearTypeConfirm] = useState('')
+  const [clearError, setClearError] = useState('')
+  const [clearSuccess, setClearSuccess] = useState('')
+  const [clearingGlobal, setClearingGlobal] = useState(false)
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null)
 
   const scrollContainerRef = useRef<HTMLElement>(null)
 
@@ -84,6 +91,7 @@ export function GlobalChatPanel({
       if (!isMounted) return
 
       setUserId(user.id)
+      setIsAdmin(profile.is_admin === true)
 
       let query = supabase
         .from('messages')
@@ -207,6 +215,77 @@ export function GlobalChatPanel({
     setContent('')
   }
 
+  const handleDeleteOwnMessage = async (messageId: string) => {
+    if (!userId) return
+    if (!window.confirm('Slette denne meldingen?')) return
+
+    setDeletingMessageId(messageId)
+    try {
+      const { error: delError } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', messageId)
+        .eq('user_id', userId)
+      if (delError) {
+        window.alert(delError.message)
+        return
+      }
+      setMessages((prev) => prev.filter((m) => m.id !== messageId))
+    } finally {
+      setDeletingMessageId(null)
+    }
+  }
+
+  const handleClearGlobalChat = async () => {
+    if (clearTypeConfirm !== 'DELETE') return
+
+    const ok = window.confirm(
+      'Slette alle globale chatmeldinger?\n\nDette fjerner alle meldinger i den globale chatten for alle brukere. Liga-chatter berøres ikke. Kan ikke angres.'
+    )
+    if (!ok) return
+
+    setClearError('')
+    setClearingGlobal(true)
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) {
+        setClearError('Fant ikke innlogging. Prøv å logge inn på nytt.')
+        setClearingGlobal(false)
+        return
+      }
+
+      const res = await fetch('/api/admin/clear-global-chat', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      const payload = (await res.json().catch(() => ({}))) as { error?: string }
+
+      if (!res.ok) {
+        setClearError(payload.error || `Kunne ikke slette (HTTP ${res.status}).`)
+        setClearingGlobal(false)
+        return
+      }
+
+      setMessages([])
+      setUserInfoMap({})
+      setClearPanelOpen(false)
+      setClearTypeConfirm('')
+      setClearSuccess('All global chat er tømt.')
+      window.setTimeout(() => setClearSuccess(''), 5000)
+    } catch {
+      setClearError('Nettverksfeil. Prøv igjen.')
+    } finally {
+      setClearingGlobal(false)
+    }
+  }
+
   useEffect(() => {
     const {
       data: { subscription },
@@ -264,21 +343,34 @@ export function GlobalChatPanel({
           messages.map((message) => {
             const info = userInfoMap[message.user_id]
             const label = info?.username ?? shortenUserId(message.user_id)
+            const isOwn = userId !== null && message.user_id === userId
             return (
               <article key={message.id} className="rounded-xl bg-slate-100 px-3 py-2">
                 <p className="text-sm text-slate-900">{message.content}</p>
-                <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-500">
-                  <span className="inline-flex flex-wrap items-center gap-x-1.5">
-                    <span>{label}</span>
-                    {info?.isAdmin ? (
-                      <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-amber-900">
-                        ADMIN
-                      </span>
-                    ) : null}
-                  </span>
-                  <span aria-hidden>•</span>
-                  <span>{new Date(message.created_at).toLocaleString('nb-NO')}</span>
-                </p>
+                <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                  <p className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-500">
+                    <span className="inline-flex flex-wrap items-center gap-x-1.5">
+                      <span>{label}</span>
+                      {info?.isAdmin ? (
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-amber-900">
+                          ADMIN
+                        </span>
+                      ) : null}
+                    </span>
+                    <span aria-hidden>•</span>
+                    <span>{new Date(message.created_at).toLocaleString('nb-NO')}</span>
+                  </p>
+                  {isOwn ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteOwnMessage(message.id)}
+                      disabled={deletingMessageId === message.id}
+                      className="shrink-0 text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 transition hover:text-red-700 disabled:opacity-50"
+                    >
+                      {deletingMessageId === message.id ? '…' : 'Slett'}
+                    </button>
+                  ) : null}
+                </div>
               </article>
             )
           })
@@ -308,6 +400,83 @@ export function GlobalChatPanel({
           </button>
         </div>
       </form>
+
+      {isAdmin && !loadingMessages ? (
+        <div className="shrink-0 border-t border-slate-200 bg-white px-3 pb-3 pt-2 sm:px-4">
+          {clearSuccess ? (
+            <p className="mb-2 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
+              {clearSuccess}
+            </p>
+          ) : null}
+
+          {!clearPanelOpen ? (
+            <button
+              type="button"
+              onClick={() => {
+                setClearPanelOpen(true)
+                setClearTypeConfirm('')
+                setClearError('')
+              }}
+              className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800 transition hover:border-red-300 hover:bg-red-100 sm:max-w-xs"
+            >
+              Slett all global chat
+            </button>
+          ) : (
+            <div className="space-y-2 rounded-lg border border-red-200/90 bg-red-50/50 p-3">
+              <p className="text-xs leading-relaxed text-red-950/85">
+                Alle globale meldinger slettes permanent fra databasen. Liga-chatter med{' '}
+                <span className="font-mono">league_id</span> slettes ikke.
+              </p>
+              <div>
+                <label
+                  htmlFor="global-chat-clear-confirm"
+                  className="mb-1 block text-[11px] font-medium text-red-950/90"
+                >
+                  Skriv <span className="font-mono font-semibold">DELETE</span> for å bekrefte
+                </label>
+                <input
+                  id="global-chat-clear-confirm"
+                  type="text"
+                  autoComplete="off"
+                  value={clearTypeConfirm}
+                  onChange={(e) => {
+                    setClearTypeConfirm(e.target.value)
+                    if (clearError) setClearError('')
+                  }}
+                  disabled={clearingGlobal}
+                  placeholder="DELETE"
+                  className="w-full rounded-lg border border-red-200 bg-white px-2.5 py-2 font-mono text-sm text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:opacity-60"
+                />
+              </div>
+              {clearError ? (
+                <p className="rounded-md bg-red-100 px-2 py-1.5 text-xs text-red-800">{clearError}</p>
+              ) : null}
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <button
+                  type="button"
+                  disabled={clearingGlobal || clearTypeConfirm !== 'DELETE'}
+                  onClick={() => void handleClearGlobalChat()}
+                  className="rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-medium text-red-800 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {clearingGlobal ? 'Sletter...' : 'Tøm global chat'}
+                </button>
+                <button
+                  type="button"
+                  disabled={clearingGlobal}
+                  onClick={() => {
+                    setClearPanelOpen(false)
+                    setClearTypeConfirm('')
+                    setClearError('')
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Avbryt
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }

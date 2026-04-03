@@ -1,7 +1,6 @@
 'use client'
 
 import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
@@ -11,26 +10,17 @@ import {
   shortenUserId,
 } from '@/lib/profiles'
 
-type Message = {
+type AdminMessage = {
   id: string
   user_id: string
   content: string
   created_at: string
-  league_id?: string | null
 }
 
-type Props = {
-  leagueId: string
-  /** page: full route. embed: short stack. hub: tall in-league dashboard + optional link to full chat. */
-  variant: 'page' | 'embed' | 'hub'
-  /** Hub: opens dedicated chat route */
-  fullChatHref?: string
-}
+const CHANNEL_NAME = 'admin-messages-internal'
 
-/** Supabase reuses channel instances by name; .on() after .subscribe() throws — remove stale topics first. */
-function removeLeagueMessagesRealtimeChannel(forLeagueId: string) {
-  const channelName = `league-messages:${forLeagueId}`
-  const topic = `realtime:${channelName}`
+function removeAdminChatChannel() {
+  const topic = `realtime:${CHANNEL_NAME}`
   for (const ch of supabase.getChannels()) {
     if (ch.topic === topic) {
       void supabase.removeChannel(ch)
@@ -38,24 +28,29 @@ function removeLeagueMessagesRealtimeChannel(forLeagueId: string) {
   }
 }
 
-export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
+type AdminChatPanelProps = {
+  /** When true, use a fixed viewport-bounded height on /admin (messages scroll inside). */
+  fillColumn?: boolean
+}
+
+/**
+ * Admin-only chat backed by `public.admin_messages`. Render only on /admin (or behind admin gate).
+ */
+export function AdminChatPanel({ fillColumn = false }: AdminChatPanelProps) {
   const router = useRouter()
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<AdminMessage[]>([])
   const [content, setContent] = useState('')
   const [userId, setUserId] = useState<string | null>(null)
   const [loadingMessages, setLoadingMessages] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [userInfoMap, setUserInfoMap] = useState<Record<string, ChatUserInfo>>({})
-  const [resolvedLeagueName, setResolvedLeagueName] = useState('')
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null)
 
   const scrollContainerRef = useRef<HTMLElement>(null)
 
-  const addMessageIfMissing = (prev: Message[], incoming: Message) => {
-    if (prev.some((message) => message.id === incoming.id)) {
-      return prev
-    }
+  const addMessageIfMissing = (prev: AdminMessage[], incoming: AdminMessage) => {
+    if (prev.some((m) => m.id === incoming.id)) return prev
     return [...prev, incoming].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     )
@@ -63,19 +58,12 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
 
   useEffect(() => {
     let isMounted = true
+    let removeChannel: (() => void) | undefined
 
-    if (leagueId) {
-      removeLeagueMessagesRealtimeChannel(leagueId)
-    }
+    removeAdminChatChannel()
 
-    const loadChat = async () => {
+    const load = async () => {
       setError('')
-
-      if (!leagueId) {
-        setError('Ugyldig liga.')
-        setLoadingMessages(false)
-        return
-      }
 
       const {
         data: { user },
@@ -95,50 +83,30 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
         return
       }
 
-      const { data: membership, error: memberError } = await supabase
-        .from('league_members')
-        .select('league_id')
-        .eq('user_id', user.id)
-        .eq('league_id', leagueId)
-        .maybeSingle()
-
-      if (memberError) {
-        if (isMounted) setError(memberError.message)
-        if (isMounted) setLoadingMessages(false)
-        return
-      }
-
-      if (!membership) {
+      if (!profile.is_admin) {
         router.replace('/leagues')
         return
       }
 
-      const { data: leagueRow } = await supabase
-        .from('leagues')
-        .select('name')
-        .eq('id', leagueId)
-        .maybeSingle()
-
-      if (isMounted) {
-        setResolvedLeagueName((leagueRow as { name: string | null } | null)?.name || 'Liga')
-      }
+      if (!isMounted) return
 
       setUserId(user.id)
 
-      const { data, error: messagesError } = await supabase
-        .from('messages')
-        .select('id, user_id, content, created_at, league_id')
-        .eq('league_id', leagueId)
+      const { data, error: fetchError } = await supabase
+        .from('admin_messages')
+        .select('id, user_id, content, created_at')
         .order('created_at', { ascending: true })
 
-      if (messagesError) {
-        if (isMounted) setError(messagesError.message)
+      if (fetchError) {
+        if (isMounted) setError(fetchError.message)
       } else {
-        const fetchedMessages = data ?? []
+        const rows = (data ?? []) as AdminMessage[]
         if (isMounted) {
-          setMessages(fetchedMessages)
-          const userInfos = await getUsernameMap(fetchedMessages.map((m) => m.user_id))
-          if (isMounted) setUserInfoMap(userInfos)
+          setMessages(rows)
+          if (rows.length > 0) {
+            const infos = await getUsernameMap(rows.map((r) => r.user_id))
+            if (isMounted) setUserInfoMap(infos)
+          }
         }
       }
 
@@ -146,57 +114,66 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
 
       if (!isMounted) return
 
-      removeLeagueMessagesRealtimeChannel(leagueId)
+      removeAdminChatChannel()
 
-      const channelName = `league-messages:${leagueId}`
-      const channel = supabase.channel(channelName).on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `league_id=eq.${leagueId}`,
-        },
-        (payload) => {
-          const newMessage = payload.new as Message
-          if (newMessage.league_id !== leagueId) return
-          setMessages((prev) => addMessageIfMissing(prev, newMessage))
-          void getUsernameMap([newMessage.user_id]).then((infos) => {
-            setUserInfoMap((prev) => ({ ...prev, ...infos }))
-          })
-        }
-      )
+      const channel = supabase
+        .channel(CHANNEL_NAME)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'admin_messages',
+          },
+          (payload) => {
+            const row = payload.new as AdminMessage
+            setMessages((prev) => addMessageIfMissing(prev, row))
+            void getUsernameMap([row.user_id]).then((infos) => {
+              setUserInfoMap((p) => ({ ...p, ...infos }))
+            })
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'admin_messages',
+          },
+          (payload) => {
+            const id = (payload.old as { id?: string } | null)?.id
+            if (id) setMessages((prev) => prev.filter((m) => m.id !== id))
+          }
+        )
 
       channel.subscribe()
+
+      removeChannel = () => {
+        void supabase.removeChannel(channel)
+      }
     }
 
-    void loadChat()
+    void load()
 
     return () => {
       isMounted = false
-      if (leagueId) {
-        removeLeagueMessagesRealtimeChannel(leagueId)
-      }
+      removeChannel?.()
+      removeAdminChatChannel()
     }
-  }, [leagueId, router])
+  }, [router])
 
   const handleSend = async (e: FormEvent) => {
     e.preventDefault()
-
     const trimmed = content.trim()
-    if (!trimmed || !userId || !leagueId) return
+    if (!trimmed || !userId) return
 
     setSending(true)
     setError('')
 
     const { data, error: insertError } = await supabase
-      .from('messages')
-      .insert({
-        user_id: userId,
-        content: trimmed,
-        league_id: leagueId,
-      })
-      .select('id, user_id, content, created_at, league_id')
+      .from('admin_messages')
+      .insert({ user_id: userId, content: trimmed })
+      .select('id, user_id, content, created_at')
       .single()
 
     setSending(false)
@@ -206,7 +183,10 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
       return
     }
 
-    setMessages((prev) => addMessageIfMissing(prev, data))
+    setMessages((prev) => addMessageIfMissing(prev, data as AdminMessage))
+    void getUsernameMap([userId]).then((infos) => {
+      setUserInfoMap((p) => ({ ...p, ...infos }))
+    })
     setContent('')
   }
 
@@ -217,10 +197,11 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
     setDeletingMessageId(messageId)
     try {
       const { error: delError } = await supabase
-        .from('messages')
+        .from('admin_messages')
         .delete()
         .eq('id', messageId)
         .eq('user_id', userId)
+
       if (delError) {
         window.alert(delError.message)
         return
@@ -233,64 +214,28 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
 
   useLayoutEffect(() => {
     if (loadingMessages) return
-
     const el = scrollContainerRef.current
     if (!el) return
-
     el.scrollTop = el.scrollHeight
   }, [loadingMessages, messages, userInfoMap])
 
-  const outerClass =
-    variant === 'page'
-      ? 'flex h-[calc(100dvh-11rem)] min-h-[280px] w-full flex-col rounded-2xl bg-white shadow-sm ring-1 ring-slate-200'
-      : variant === 'hub'
-        ? 'flex h-[min(58dvh,24rem)] w-full min-h-[16rem] flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 sm:h-[min(56dvh,28rem)] lg:h-[min(78dvh,44rem)] lg:max-h-[calc(100dvh-6rem)] lg:min-h-[22rem]'
-        : 'flex h-[min(420px,52vh)] min-h-[220px] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200'
+  /** Fixed outer height so the panel never grows with message count; inner section scrolls. */
+  const heightClasses = fillColumn
+    ? 'h-[min(24rem,52dvh)] sm:h-[min(26rem,54dvh)] shrink-0'
+    : 'h-[min(52dvh,24rem)] min-h-[220px] sm:h-[min(50dvh,26rem)] sm:min-h-[240px]'
 
   return (
-    <div className={outerClass}>
-      <div className="flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 px-4 py-3">
-        <div className="min-w-0">
-          {variant === 'page' ? (
-            <>
-              <h1 className="text-lg font-semibold text-slate-900">
-                {resolvedLeagueName || 'Liga'}
-              </h1>
-              <p className="text-xs text-slate-500">Ligachat</p>
-            </>
-          ) : variant === 'hub' ? (
-            <>
-              <h2 className="text-base font-semibold text-slate-900">💬 Ligachat</h2>
-              <p className="text-xs text-slate-500">Meldinger og svar her</p>
-            </>
-          ) : (
-            <>
-              <h2 className="text-sm font-semibold text-slate-900">Ligachat</h2>
-              <p className="text-xs text-slate-500">Meldinger i ligaen</p>
-            </>
-          )}
-        </div>
-        {variant === 'hub' && fullChatHref ? (
-          <Link
-            href={fullChatHref}
-            prefetch
-            className="shrink-0 pt-0.5 text-xs font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
-          >
-            Åpne full chat
-          </Link>
-        ) : null}
-      </div>
-
+    <div
+      className={`flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-200/80 ${heightClasses}`}
+    >
       <section
         ref={scrollContainerRef}
-        className={`min-h-0 flex-1 space-y-2.5 overflow-y-auto p-4 sm:space-y-3 ${
-          variant === 'hub' ? 'bg-slate-50/60' : ''
-        }`}
+        className="min-h-0 flex-1 space-y-2.5 overflow-y-auto bg-slate-50/50 p-3 sm:space-y-3 sm:p-4"
       >
         {loadingMessages ? (
-          <p className="text-sm text-slate-500">Laster meldinger...</p>
+          <p className="text-sm text-slate-500">Laster...</p>
         ) : messages.length === 0 ? (
-          <p className="text-sm text-slate-500">Ingen meldinger i denne ligaen ennå.</p>
+          <p className="text-sm text-slate-500">Ingen meldinger ennå.</p>
         ) : (
           messages.map((message) => {
             const info = userInfoMap[message.user_id]
@@ -329,17 +274,19 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref }: Props) {
         )}
       </section>
 
-      <form onSubmit={handleSend} className="shrink-0 space-y-2 border-t border-slate-200 p-4">
+      <form
+        onSubmit={(e) => void handleSend(e)}
+        className="shrink-0 space-y-2 border-t border-slate-200 bg-white p-3 sm:p-4"
+      >
         {error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         ) : null}
-
         <div className="flex items-center gap-2">
           <input
             type="text"
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="Skriv en melding..."
+            placeholder="Melding til adminer..."
             className="w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
             disabled={sending || loadingMessages}
           />

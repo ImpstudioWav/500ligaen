@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AppNav } from '@/components/AppNav'
+import { AdminChatPanel } from '@/components/AdminChatPanel'
 import { supabase } from '@/lib/supabase'
 import { getProfileByUserId, shortenUserId } from '@/lib/profiles'
 
@@ -49,6 +50,8 @@ export default function AdminOverviewPage() {
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** League id -> member list expanded */
   const [membersExpanded, setMembersExpanded] = useState<Record<string, boolean>>({})
+  /** League id -> card details expanded (compact by default) */
+  const [leagueCardExpanded, setLeagueCardExpanded] = useState<Record<string, boolean>>({})
   const [deletePanelLeagueId, setDeletePanelLeagueId] = useState<string | null>(null)
   const [deleteTypeConfirm, setDeleteTypeConfirm] = useState('')
   const [deleteCardError, setDeleteCardError] = useState('')
@@ -214,6 +217,7 @@ export default function AdminOverviewPage() {
     setDeletePanelLeagueId(leagueId)
     setDeleteTypeConfirm('')
     setDeleteCardError('')
+    setLeagueCardExpanded((prev) => ({ ...prev, [leagueId]: true }))
   }
 
   const closeDeletePanel = () => {
@@ -268,6 +272,11 @@ export default function AdminOverviewPage() {
         delete next[leagueId]
         return next
       })
+      setLeagueCardExpanded((prev) => {
+        const next = { ...prev }
+        delete next[leagueId]
+        return next
+      })
       closeDeletePanel()
       setLeagueDeleteSuccess(`«${leagueDisplayName}» ble slettet.`)
       window.setTimeout(() => {
@@ -295,7 +304,7 @@ export default function AdminOverviewPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6">
-      <div className="mx-auto w-full max-w-4xl space-y-6">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
         <AppNav />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -342,192 +351,243 @@ export default function AdminOverviewPage() {
               </div>
             </section>
 
-            <section aria-label="Ligaer">
-              <h2 className="text-sm font-semibold text-slate-900">Ligaer</h2>
-              {leagueDeleteSuccess ? (
-                <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                  {leagueDeleteSuccess}
-                </p>
-              ) : null}
-              <div className="mt-3 space-y-4">
-                {leaguesWithMembers.length === 0 ? (
-                  <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-                    Ingen ligaer ennå.
-                  </p>
-                ) : (
-                  leaguesWithMembers.map(({ league, memberProfiles, memberCount }) => (
-                    <article
-                      key={league.id}
-                      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-200/80"
-                    >
-                      <div className="border-b border-slate-100 p-4 sm:p-5">
-                        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0">
-                            <h3 className="text-base font-semibold text-slate-900">
-                              {league.name?.trim() || 'Uten navn'}
-                            </h3>
-                            <p className="mt-1 text-xs text-slate-600">
-                              Status:{' '}
-                              <span className="font-medium text-slate-800">
-                                {league.status != null ? String(league.status) : '—'}
-                              </span>
-                              {' · '}
-                              Ligakode:{' '}
-                              <span className="font-mono font-semibold text-slate-900">
-                                {league.join_code?.trim() || '—'}
-                              </span>
-                              {' · '}
-                              {memberCount} medlem{memberCount === 1 ? '' : 'mer'}
-                            </p>
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2 sm:mt-0">
-                            <Link
-                              href={`/league/${league.id}`}
-                              prefetch
-                              className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800 transition hover:bg-slate-100"
-                            >
-                              Åpne liga
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => openDeletePanel(league.id)}
-                              className="inline-flex rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-800 transition hover:border-red-300 hover:bg-red-100"
-                            >
-                              Slett liga
-                            </button>
-                          </div>
-                        </div>
-                        <dl className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-                          <div>
-                            <dt className="text-slate-500">Prediction åpner</dt>
-                            <dd className="font-medium text-slate-800">
-                              {formatPredictionAt(league.prediction_open_at)}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-slate-500">Prediction stenger</dt>
-                            <dd className="font-medium text-slate-800">
-                              {formatPredictionAt(league.prediction_close_at)}
-                            </dd>
-                          </div>
-                        </dl>
-
-                        {deletePanelLeagueId === league.id ? (
-                          <div className="mt-4 space-y-3 rounded-lg border border-red-200/90 bg-red-50/50 p-3 sm:p-4">
-                            <p className="text-xs leading-relaxed text-red-950/85">
-                              Du sletter <strong>{league.name?.trim() || 'ligaen'}</strong>. Ligaen og all
-                              tilhørende data slettes permanent (medlemmer, meldinger, prediksjoner, poeng
-                              m.m. via databasens sletteregler). Dette kan ikke angres.
-                            </p>
-                            <div>
-                              <label
-                                htmlFor={`admin-delete-league-${league.id}`}
-                                className="mb-1 block text-xs font-medium text-red-950/90"
-                              >
-                                Bekreft ved å skrive{' '}
-                                <span className="font-mono font-semibold">DELETE</span> (store bokstaver)
-                              </label>
-                              <input
-                                id={`admin-delete-league-${league.id}`}
-                                type="text"
-                                autoComplete="off"
-                                value={deleteTypeConfirm}
-                                onChange={(e) => {
-                                  setDeleteTypeConfirm(e.target.value)
-                                  if (deleteCardError) setDeleteCardError('')
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-stretch">
+              <div className="min-w-0 lg:col-span-7 lg:min-h-0">
+                <section aria-label="Ligaer">
+                  <h2 className="text-sm font-semibold text-slate-900">Ligaer</h2>
+                  {leagueDeleteSuccess ? (
+                    <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                      {leagueDeleteSuccess}
+                    </p>
+                  ) : null}
+                  <div className="mt-3 space-y-2">
+                    {leaguesWithMembers.length === 0 ? (
+                      <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+                        Ingen ligaer ennå.
+                      </p>
+                    ) : (
+                      leaguesWithMembers.map(({ league, memberProfiles, memberCount }) => {
+                        const detailsOpen = leagueCardExpanded[league.id] === true
+                        return (
+                          <article
+                            key={league.id}
+                            className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-200/80"
+                          >
+                            <div className="flex flex-wrap items-center gap-2 p-2.5 sm:gap-3 sm:px-3 sm:py-2">
+                              <div className="min-w-0 flex-1">
+                                <h3 className="truncate text-sm font-semibold text-slate-900">
+                                  {league.name?.trim() || 'Uten navn'}
+                                </h3>
+                                <p className="text-[11px] text-slate-500">
+                                  {memberCount} medlem{memberCount === 1 ? '' : 'mer'}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                aria-expanded={detailsOpen}
+                                aria-controls={`league-details-${league.id}`}
+                                id={`league-details-toggle-${league.id}`}
+                                onClick={() => {
+                                  if (detailsOpen && deletePanelLeagueId === league.id) {
+                                    closeDeletePanel()
+                                  }
+                                  setLeagueCardExpanded((prev) => ({
+                                    ...prev,
+                                    [league.id]: !detailsOpen,
+                                  }))
                                 }}
-                                disabled={deletingLeagueId === league.id}
-                                placeholder="DELETE"
-                                className="w-full rounded-lg border border-red-200 bg-white px-2.5 py-2 font-mono text-sm text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:opacity-60"
-                              />
-                            </div>
-                            {deleteCardError ? (
-                              <p className="rounded-md bg-red-100 px-2.5 py-1.5 text-xs text-red-800">
-                                {deleteCardError}
-                              </p>
-                            ) : null}
-                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                              <button
-                                type="button"
-                                disabled={
-                                  deletingLeagueId === league.id || deleteTypeConfirm !== 'DELETE'
-                                }
-                                onClick={() =>
-                                  void handleConfirmDeleteLeague(
-                                    league.id,
-                                    league.name?.trim() || 'Liga'
-                                  )
-                                }
-                                className="rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-medium text-red-800 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-800 transition hover:bg-slate-100 active:bg-slate-100"
                               >
-                                {deletingLeagueId === league.id ? 'Sletter...' : 'Bekreft sletting'}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={deletingLeagueId === league.id}
-                                onClick={closeDeletePanel}
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                              >
-                                Avbryt
+                                {detailsOpen ? 'Skjul detaljer' : 'Vis detaljer'}
                               </button>
                             </div>
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="bg-slate-50/80 px-4 py-3 sm:px-5">
-                        {memberProfiles.length === 0 ? (
-                          <p className="text-sm text-slate-500">Ingen medlemmer.</p>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              aria-expanded={membersExpanded[league.id] === true}
-                              aria-controls={`league-members-${league.id}`}
-                              id={`league-members-toggle-${league.id}`}
-                              onClick={() =>
-                                setMembersExpanded((prev) => ({
-                                  ...prev,
-                                  [league.id]: !prev[league.id],
-                                }))
-                              }
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 sm:w-auto sm:min-w-[11rem]"
-                            >
-                              {membersExpanded[league.id]
-                                ? 'Skjul medlemmer'
-                                : `Medlemmer (${memberCount})`}
-                            </button>
-                            {membersExpanded[league.id] ? (
-                              <ul
-                                id={`league-members-${league.id}`}
-                                role="list"
-                                aria-labelledby={`league-members-toggle-${league.id}`}
-                                className="mt-2 max-h-52 space-y-1.5 overflow-y-auto overscroll-contain rounded-lg border border-slate-200/80 bg-white px-2.5 py-2 sm:max-h-48"
+
+                            {detailsOpen ? (
+                              <div
+                                id={`league-details-${league.id}`}
+                                role="region"
+                                aria-labelledby={`league-details-toggle-${league.id}`}
+                                className="border-t border-slate-100"
                               >
-                                {memberProfiles.map((p) => (
-                                  <li
-                                    key={p.id}
-                                    className="flex flex-wrap items-center gap-2 border-b border-slate-100 py-1.5 text-sm text-slate-800 last:border-b-0"
-                                  >
-                                    <span className="font-medium">
-                                      {p.username?.trim() || shortenUserId(p.id)}
+                                <div className="space-y-3 p-3 sm:p-4">
+                                  <p className="text-xs text-slate-600">
+                                    Status:{' '}
+                                    <span className="font-medium text-slate-800">
+                                      {league.status != null ? String(league.status) : '—'}
                                     </span>
-                                    {p.is_admin === true ? (
-                                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
-                                        Admin
-                                      </span>
-                                    ) : null}
-                                  </li>
-                                ))}
-                              </ul>
+                                    {' · '}
+                                    Ligakode:{' '}
+                                    <span className="font-mono font-semibold text-slate-900">
+                                      {league.join_code?.trim() || '—'}
+                                    </span>
+                                  </p>
+                                  <dl className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                                    <div>
+                                      <dt className="text-slate-500">Prediction åpner</dt>
+                                      <dd className="font-medium text-slate-800">
+                                        {formatPredictionAt(league.prediction_open_at)}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-slate-500">Prediction stenger</dt>
+                                      <dd className="font-medium text-slate-800">
+                                        {formatPredictionAt(league.prediction_close_at)}
+                                      </dd>
+                                    </div>
+                                  </dl>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Link
+                                      href={`/league/${league.id}`}
+                                      prefetch
+                                      className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800 transition hover:bg-slate-100"
+                                    >
+                                      Åpne liga
+                                    </Link>
+                                    <button
+                                      type="button"
+                                      onClick={() => openDeletePanel(league.id)}
+                                      className="inline-flex rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-800 transition hover:border-red-300 hover:bg-red-100"
+                                    >
+                                      Slett liga
+                                    </button>
+                                  </div>
+
+                                  {deletePanelLeagueId === league.id ? (
+                                    <div className="space-y-3 rounded-lg border border-red-200/90 bg-red-50/50 p-3 sm:p-4">
+                                      <p className="text-xs leading-relaxed text-red-950/85">
+                                        Du sletter <strong>{league.name?.trim() || 'ligaen'}</strong>. Ligaen og
+                                        all tilhørende data slettes permanent (medlemmer, meldinger,
+                                        prediksjoner, poeng m.m. via databasens sletteregler). Dette kan ikke
+                                        angres.
+                                      </p>
+                                      <div>
+                                        <label
+                                          htmlFor={`admin-delete-league-${league.id}`}
+                                          className="mb-1 block text-xs font-medium text-red-950/90"
+                                        >
+                                          Bekreft ved å skrive{' '}
+                                          <span className="font-mono font-semibold">DELETE</span> (store
+                                          bokstaver)
+                                        </label>
+                                        <input
+                                          id={`admin-delete-league-${league.id}`}
+                                          type="text"
+                                          autoComplete="off"
+                                          value={deleteTypeConfirm}
+                                          onChange={(e) => {
+                                            setDeleteTypeConfirm(e.target.value)
+                                            if (deleteCardError) setDeleteCardError('')
+                                          }}
+                                          disabled={deletingLeagueId === league.id}
+                                          placeholder="DELETE"
+                                          className="w-full rounded-lg border border-red-200 bg-white px-2.5 py-2 font-mono text-sm text-slate-900 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:opacity-60"
+                                        />
+                                      </div>
+                                      {deleteCardError ? (
+                                        <p className="rounded-md bg-red-100 px-2.5 py-1.5 text-xs text-red-800">
+                                          {deleteCardError}
+                                        </p>
+                                      ) : null}
+                                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            deletingLeagueId === league.id ||
+                                            deleteTypeConfirm !== 'DELETE'
+                                          }
+                                          onClick={() =>
+                                            void handleConfirmDeleteLeague(
+                                              league.id,
+                                              league.name?.trim() || 'Liga'
+                                            )
+                                          }
+                                          className="rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-medium text-red-800 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                          {deletingLeagueId === league.id
+                                            ? 'Sletter...'
+                                            : 'Bekreft sletting'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={deletingLeagueId === league.id}
+                                          onClick={closeDeletePanel}
+                                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                                        >
+                                          Avbryt
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <div className="border-t border-slate-100 bg-slate-50/80 px-3 py-2.5 sm:px-4">
+                                  {memberProfiles.length === 0 ? (
+                                    <p className="text-xs text-slate-500">Ingen medlemmer.</p>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        aria-expanded={membersExpanded[league.id] === true}
+                                        aria-controls={`league-members-${league.id}`}
+                                        id={`league-members-toggle-${league.id}`}
+                                        onClick={() =>
+                                          setMembersExpanded((prev) => ({
+                                            ...prev,
+                                            [league.id]: !prev[league.id],
+                                          }))
+                                        }
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-medium text-slate-800 shadow-sm transition hover:bg-slate-50 sm:w-auto sm:min-w-[11rem]"
+                                      >
+                                        {membersExpanded[league.id]
+                                          ? 'Skjul medlemmer'
+                                          : `Medlemmer (${memberCount})`}
+                                      </button>
+                                      {membersExpanded[league.id] ? (
+                                        <ul
+                                          id={`league-members-${league.id}`}
+                                          role="list"
+                                          aria-labelledby={`league-members-toggle-${league.id}`}
+                                          className="mt-2 max-h-52 space-y-1.5 overflow-y-auto overscroll-contain rounded-lg border border-slate-200/80 bg-white px-2.5 py-2 sm:max-h-48"
+                                        >
+                                          {memberProfiles.map((p) => (
+                                            <li
+                                              key={p.id}
+                                              className="flex flex-wrap items-center gap-2 border-b border-slate-100 py-1.5 text-sm text-slate-800 last:border-b-0"
+                                            >
+                                              <span className="font-medium">
+                                                {p.username?.trim() || shortenUserId(p.id)}
+                                              </span>
+                                              {p.is_admin === true ? (
+                                                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
+                                                  Admin
+                                                </span>
+                                              ) : null}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      ) : null}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
                             ) : null}
-                          </>
-                        )}
-                      </div>
-                    </article>
-                  ))
-                )}
+                          </article>
+                        )
+                      })
+                    )}
+                  </div>
+                </section>
               </div>
-            </section>
+
+              <section
+                aria-label="Admin-chat"
+                className="min-w-0 w-full shrink-0 lg:col-span-5 lg:self-start"
+              >
+                <h2 className="text-sm font-semibold text-slate-900">Admin-chat</h2>
+                <div className="mt-2">
+                  <AdminChatPanel fillColumn />
+                </div>
+              </section>
+            </div>
 
             <section aria-label="Brukere">
               <h2 className="text-sm font-semibold text-slate-900">Brukere (profiler)</h2>

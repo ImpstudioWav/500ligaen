@@ -14,6 +14,14 @@ type LeagueSummary = {
   status: string
 }
 
+/** Display-only: translate known English status values for cards */
+function leagueCardStatusLabel(status: string): string {
+  const raw = status?.trim()
+  if (!raw) return '—'
+  if (raw.toLowerCase() === 'open') return 'åpen'
+  return raw
+}
+
 function isUniqueViolation(error: unknown) {
   return typeof error === 'object' && error !== null && (error as { code?: string }).code === '23505'
 }
@@ -223,9 +231,12 @@ export default function LeaguesPage() {
                               <p className="mt-0.5 text-sm text-slate-600">
                                 Status:{' '}
                                 <span className="text-slate-800">
-                                  {lg.status != null ? String(lg.status) : '—'}
+                                  {lg.status != null && lg.status !== ''
+                                    ? leagueCardStatusLabel(lg.status)
+                                    : '—'}
                                 </span>
                               </p>
+                              <p className="mt-1.5 text-xs text-slate-500">Trykk for å åpne liga</p>
                             </Link>
                           </li>
                         ))}
