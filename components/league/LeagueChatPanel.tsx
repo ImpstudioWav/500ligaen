@@ -11,6 +11,7 @@ import {
   type ChatUserInfo,
   getProfileByUserId,
   getUsernameMap,
+  profileHasUsername,
   shortenUserId,
 } from '@/lib/profiles'
 import { buildRepliedToPayload } from '@/lib/chatReplyPreview'
@@ -126,7 +127,7 @@ export function LeagueChatPanel({ leagueId, variant, fullChatHref, onThreadActiv
 
       const profile = await getProfileByUserId(user.id)
       if (!isMounted || gen !== loadGenerationRef.current) return
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

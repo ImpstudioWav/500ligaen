@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AppNav } from '@/components/AppNav'
 import { supabase } from '@/lib/supabase'
-import { getProfileByUserId } from '@/lib/profiles'
+import { getProfileByUserId, profileHasUsername } from '@/lib/profiles'
 
 type StatusOption = 'draft' | 'open'
 
@@ -64,7 +64,7 @@ export default function AdminNewLeaguePage() {
       }
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

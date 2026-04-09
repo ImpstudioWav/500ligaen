@@ -8,6 +8,7 @@ import {
   type ChatUserInfo,
   getProfileByUserId,
   getUsernameMap,
+  profileHasUsername,
   shortenUserId,
 } from '@/lib/profiles'
 
@@ -79,7 +80,7 @@ export function LeagueLeaderboardSection({
       }
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }
@@ -155,7 +156,7 @@ export function LeagueLeaderboardSection({
       if (cancelled) return
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

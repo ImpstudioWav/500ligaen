@@ -10,6 +10,99 @@ type ProfileRow = {
 type DbErrorLike = {
   code?: string
   message?: string
+  details?: string
+  hint?: string
+}
+
+/** Pick PostgREST / Supabase fields reliably (avoid logging `{}` for Error subclasses). */
+export function extractSupabaseErrorFields(error: unknown): {
+  message: string
+  code: string
+  details: string
+  hint: string
+} {
+  const blank = { message: '', code: '', details: '', hint: '' }
+  if (error == null) {
+    return blank
+  }
+  if (typeof error === 'string') {
+    return { ...blank, message: error }
+  }
+  if (typeof error !== 'object') {
+    return { ...blank, message: String(error) }
+  }
+
+  const o = error as Record<string, unknown>
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+
+  let message = str(o.message)
+  let code = str(o.code)
+  let details = str(o.details)
+  let hint = str(o.hint)
+
+  if (error instanceof Error) {
+    if (!message) {
+      message = error.message || ''
+    }
+    const anyErr = error as Error & DbErrorLike
+    if (!code) code = str(anyErr.code)
+    if (!details) details = str(anyErr.details)
+    if (!hint) hint = str(anyErr.hint)
+  }
+
+  if (!message && o.error && typeof o.error === 'object') {
+    const inner = o.error as Record<string, unknown>
+    message = str(inner.message)
+    if (!code) code = str(inner.code)
+    if (!details) details = str(inner.details)
+    if (!hint) hint = str(inner.hint)
+  }
+
+  return { message, code, details, hint }
+}
+
+/** Temporary: explicit fields + serialization when the object would otherwise print as `{}`. */
+export function logUsernameSaveDebug(context: string, error: unknown) {
+  const { message, code, details, hint } = extractSupabaseErrorFields(error)
+  console.error(`[username-save] ${context}`, {
+    message,
+    code,
+    details,
+    hint,
+  })
+
+  if (!message && !code && !details && !hint && error !== null && typeof error === 'object') {
+    console.error(`[username-save] ${context} object keys`, Object.keys(error as object))
+    try {
+      const names = Object.getOwnPropertyNames(error as object)
+      console.error(
+        `[username-save] ${context} JSON`,
+        JSON.stringify(error, names)
+      )
+    } catch {
+      console.error(`[username-save] ${context} toString`, String(error))
+    }
+  }
+
+  if (error instanceof Error && error.stack) {
+    console.error(`[username-save] ${context} stack`, error.stack)
+  }
+}
+
+function postgresErrorText(error: unknown): string {
+  const f = extractSupabaseErrorFields(error)
+  return [f.message, f.details, f.hint, f.code].filter(Boolean).join(' ').toLowerCase()
+}
+
+/**
+ * True when a profile row exists and has a non-empty username (trimmed).
+ * Type guard: after `if (!profileHasUsername(profile)) return`, `profile` is non-null.
+ */
+export function profileHasUsername<P extends { username?: string | null }>(
+  profile: P | null | undefined
+): profile is P & { username: string } {
+  const u = profile?.username?.trim()
+  return profile != null && Boolean(u)
 }
 
 /** Aligns with special chat mentions @everyone / @admin (blocked case-insensitively). */
@@ -17,8 +110,9 @@ export const RESERVED_USERNAME_ERROR =
   'Dette brukernavnet er reservert og kan ikke brukes.'
 
 /** Shown when another profile already uses this username (any casing). */
-export const USERNAME_TAKEN_CI_ERROR =
-  'Dette brukernavnet er allerede i bruk (uavhengig av store og små bokstaver).'
+export const USERNAME_TAKEN_CI_ERROR = 'Brukernavnet er allerede tatt.'
+
+const GENERIC_USERNAME_SAVE_ERROR = 'Kunne ikke lagre brukernavn.'
 
 const RESERVED_USERNAMES_LOWER = new Set(['everyone', 'admin'])
 
@@ -86,50 +180,119 @@ export const ensureProfileForUser = async (userId: string) => {
 
 export const isUsernameTakenError = (error: unknown) => {
   const dbError = error as DbErrorLike
-  const m = dbError?.message?.toLowerCase() ?? ''
+  const text = postgresErrorText(error)
+  const code = (dbError?.code ?? '').toString()
   return (
-    dbError?.code === '23505' ||
-    m.includes('duplicate key') ||
-    m.includes('profiles_username_key') ||
-    m.includes('profiles_username_lower_uidx')
+    code === '23505' ||
+    text.includes('23505') ||
+    text.includes('duplicate key') ||
+    text.includes('unique constraint') ||
+    text.includes('already exists') ||
+    text.includes('profiles_username_key') ||
+    text.includes('profiles_username_lower_uidx')
   )
 }
 
 /** PostgreSQL check violation for `profiles_username_not_reserved`. */
 export const isReservedUsernameConstraintError = (error: unknown) => {
-  const dbError = error as DbErrorLike
-  const m = dbError?.message?.toLowerCase() ?? ''
-  return (
-    dbError?.code === '23514' && m.includes('profiles_username_not_reserved')
-  )
+  const text = postgresErrorText(error)
+  return text.includes('profiles_username_not_reserved')
 }
 
-export const createProfileWithUsername = async (userId: string, username: string) => {
-  const trimmed = username.trim()
-  if (!trimmed) {
-    throw new Error('Brukernavn kan ikke være tomt.')
+/** Map DB / client errors to a Norwegian message for username save flows. */
+export function usernameSaveErrorMessage(error: unknown): string {
+  logUsernameSaveDebug('usernameSaveErrorMessage', error)
+
+  if (error instanceof Error && error.message === RESERVED_USERNAME_ERROR) {
+    return RESERVED_USERNAME_ERROR
   }
-  if (isReservedUsername(trimmed)) {
-    throw new Error(RESERVED_USERNAME_ERROR)
+  if (error instanceof Error && error.message === USERNAME_TAKEN_CI_ERROR) {
+    return USERNAME_TAKEN_CI_ERROR
   }
-  const taken = await isUsernameTaken(trimmed, null)
-  if (taken) {
-    throw new Error(USERNAME_TAKEN_CI_ERROR)
+  // Client-side validation errors we throw as Error — safe to show as-is
+  if (error instanceof Error && error.message === 'Brukernavn kan ikke være tomt.') {
+    return error.message
   }
 
+  if (isReservedUsernameConstraintError(error)) {
+    return RESERVED_USERNAME_ERROR
+  }
+  if (isUsernameTakenError(error)) {
+    return USERNAME_TAKEN_CI_ERROR
+  }
+
+  const text = postgresErrorText(error)
+  if (
+    text.includes('profile_username_is_taken') &&
+    !text.includes('does not exist') &&
+    !text.includes('could not find') &&
+    !text.includes('permission denied') &&
+    !text.includes('not authorized')
+  ) {
+    return USERNAME_TAKEN_CI_ERROR
+  }
+
+  const { message } = extractSupabaseErrorFields(error)
+  if (message.trim()) {
+    const m = message.toLowerCase()
+    if (
+      m.includes('duplicate key') ||
+      m.includes('unique constraint') ||
+      m.includes('profiles_username_lower_uidx') ||
+      m.includes('already exists')
+    ) {
+      return USERNAME_TAKEN_CI_ERROR
+    }
+    if (m.includes('profiles_username_not_reserved')) {
+      return RESERVED_USERNAME_ERROR
+    }
+  }
+
+  return GENERIC_USERNAME_SAVE_ERROR
+}
+
+export type CreateProfileWithUsernameResult =
+  | { error: null }
+  | { error: 'username_taken' }
+  | { error: 'unknown' }
+
+/**
+ * Create or update the signed-in user's profile row with a username.
+ * No RPC / pre-check — uniqueness is enforced by `profiles_username_lower_uidx` (23505 on conflict).
+ */
+export async function createProfileWithUsername(
+  userId: string,
+  username: string
+): Promise<CreateProfileWithUsernameResult> {
+  const trimmed = username.trim()
+  if (!trimmed) {
+    return { error: 'unknown' }
+  }
+
+  const normalized = trimmed.toLowerCase()
+
   const { error } = await supabase.from('profiles').upsert(
-    {
-      id: userId,
-      username: trimmed,
-    },
+    { id: userId, username: normalized },
     { onConflict: 'id' }
   )
 
-  if (error) {
-    throw error
+  if (!error) {
+    return { error: null }
   }
 
-  return trimmed
+  const fields = extractSupabaseErrorFields(error)
+  console.error('[createProfileWithUsername] upsert failed', {
+    message: fields.message,
+    code: fields.code,
+    details: fields.details,
+    hint: fields.hint,
+  })
+
+  if (fields.code === '23505' || postgresErrorText(error).includes('23505')) {
+    return { error: 'username_taken' }
+  }
+
+  return { error: 'unknown' }
 }
 
 export const getProfileByUserId = async (userId: string) => {
@@ -156,16 +319,21 @@ export async function isUsernameTaken(
 ): Promise<boolean> {
   const trimmed = username.trim()
   if (!trimmed) return true
-  const { data, error } = await supabase.rpc('profile_username_is_taken', {
+
+  const args: { p_username: string; p_exclude_user_id?: string } = {
     p_username: trimmed,
-    p_exclude_user_id: excludeUserId,
-  })
+  }
+  if (excludeUserId) {
+    args.p_exclude_user_id = excludeUserId
+  }
+
+  const { data, error } = await supabase.rpc('profile_username_is_taken', args)
 
   if (error) {
     throw error
   }
 
-  return data === true
+  return data === true || data === 'true'
 }
 
 /** Inverse of {@link isUsernameTaken}; false for reserved or empty handles. */

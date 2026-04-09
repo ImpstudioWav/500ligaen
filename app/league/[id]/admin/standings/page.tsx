@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { AppNav } from '@/components/AppNav'
 import { supabase } from '@/lib/supabase'
-import { getProfileByUserId } from '@/lib/profiles'
+import { getProfileByUserId, profileHasUsername } from '@/lib/profiles'
 
 /** Same season year as global admin tabell; league rows store this for DB compatibility. */
 const SEASON = 2026
@@ -86,7 +86,7 @@ export default function LeagueAdminStandingsPage() {
       }
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

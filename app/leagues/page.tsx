@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { AppNav } from '@/components/AppNav'
 import { GlobalChatPanel } from '@/components/GlobalChatPanel'
-import { getProfileByUserId } from '@/lib/profiles'
+import { getProfileByUserId, profileHasUsername } from '@/lib/profiles'
 
 type LeagueSummary = {
   id: string
@@ -85,7 +85,7 @@ export default function LeaguesPage() {
       }
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

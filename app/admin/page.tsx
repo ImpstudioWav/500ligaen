@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { AppNav } from '@/components/AppNav'
 import { AdminChatPanel } from '@/components/AdminChatPanel'
 import { supabase } from '@/lib/supabase'
-import { getProfileByUserId, shortenUserId } from '@/lib/profiles'
+import { getProfileByUserId, profileHasUsername, shortenUserId } from '@/lib/profiles'
 
 type LeagueRow = {
   id: string
@@ -81,7 +81,7 @@ export default function AdminOverviewPage() {
       }
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

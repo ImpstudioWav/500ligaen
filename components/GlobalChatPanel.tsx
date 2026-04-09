@@ -10,6 +10,7 @@ import {
   type ChatUserInfo,
   getProfileByUserId,
   getUsernameMap,
+  profileHasUsername,
   shortenUserId,
 } from '@/lib/profiles'
 import { buildRepliedToPayload } from '@/lib/chatReplyPreview'
@@ -121,7 +122,7 @@ export function GlobalChatPanel({
       if (!isMounted || gen !== globalChatLoadGenerationRef.current) return
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

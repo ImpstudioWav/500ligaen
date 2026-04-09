@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { AppNav } from '@/components/AppNav'
-import { getProfileByUserId } from '@/lib/profiles'
+import { getProfileByUserId, profileHasUsername } from '@/lib/profiles'
 import { LeagueResultsSection } from '@/components/league/LeagueResultsSection'
 
 export default function LeagueResultsPage() {
@@ -40,7 +40,7 @@ export default function LeagueResultsPage() {
       }
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

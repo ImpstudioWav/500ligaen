@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { AppNav } from '@/components/AppNav'
-import { getProfileByUserId } from '@/lib/profiles'
+import { getProfileByUserId, profileHasUsername } from '@/lib/profiles'
 
 export default function ChangePasswordPage() {
   const router = useRouter()
@@ -33,7 +33,7 @@ export default function ChangePasswordPage() {
       }
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

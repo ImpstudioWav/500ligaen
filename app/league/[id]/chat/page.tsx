@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { AppNav } from '@/components/AppNav'
-import { getProfileByUserId } from '@/lib/profiles'
+import { getProfileByUserId, profileHasUsername } from '@/lib/profiles'
 import { LeagueChatPanel } from '@/components/league/LeagueChatPanel'
 import { LEAGUE_CHAT_READ_EVENT, setLastReadMessageId } from '@/lib/leagueChatReadState'
 
@@ -39,7 +39,7 @@ export default function LeagueChatPage() {
       }
 
       const profile = await getProfileByUserId(user.id)
-      if (!profile) {
+      if (!profileHasUsername(profile)) {
         router.replace('/complete-profile')
         return
       }

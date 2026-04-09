@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getProfileByUserId } from '@/lib/profiles'
+import { getProfileByUserId, profileHasUsername } from '@/lib/profiles'
 
 export default function AuthCallbackPage() {
   const router = useRouter()
@@ -64,7 +64,7 @@ export default function AuthCallbackPage() {
 
         const profile = await getProfileByUserId(user.id)
         isActive = false
-        router.replace(profile ? '/leagues' : '/complete-profile')
+        router.replace(profileHasUsername(profile) ? '/leagues' : '/complete-profile')
       } catch {
         if (isActive) {
           setMessage(failureMessage)
@@ -87,7 +87,7 @@ export default function AuthCallbackPage() {
       void getProfileByUserId(session.user.id)
         .then((profile) => {
           isActive = false
-          router.replace(profile ? '/leagues' : '/complete-profile')
+          router.replace(profileHasUsername(profile) ? '/leagues' : '/complete-profile')
         })
         .catch(() => {
           if (isActive) {

@@ -7,10 +7,8 @@ import {
   createProfileWithUsername,
   getProfileByUserId,
   isReservedUsername,
-  isReservedUsernameConstraintError,
-  isUsernameTakenError,
+  profileHasUsername,
   RESERVED_USERNAME_ERROR,
-  USERNAME_TAKEN_CI_ERROR,
 } from '@/lib/profiles'
 
 export default function CompleteProfilePage() {
@@ -23,24 +21,30 @@ export default function CompleteProfilePage() {
 
   useEffect(() => {
     const loadUser = async () => {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser()
+      try {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser()
 
-      if (userError || !user) {
-        router.replace('/login')
-        return
+        if (userError || !user) {
+          router.replace('/login')
+          return
+        }
+
+        const profile = await getProfileByUserId(user.id)
+        if (profileHasUsername(profile)) {
+          router.replace('/leagues')
+          return
+        }
+
+        setUserId(user.id)
+      } catch (loadErr) {
+        console.error('complete-profile load failed', loadErr)
+        setError('Kunne ikke laste profil. Prøv å oppdatere siden.')
+      } finally {
+        setLoading(false)
       }
-
-      const profile = await getProfileByUserId(user.id)
-      if (profile) {
-        router.replace('/leagues')
-        return
-      }
-
-      setUserId(user.id)
-      setLoading(false)
     }
 
     void loadUser()
@@ -49,7 +53,10 @@ export default function CompleteProfilePage() {
   const handleSave = async (e: FormEvent) => {
     e.preventDefault()
 
-    if (!userId) return
+    if (!userId) {
+      setError('Bruker ikke lastet. Vent et øyeblikk og prøv igjen.')
+      return
+    }
     const trimmedUsername = username.trim()
     if (trimmedUsername.length < 3) {
       setError('Brukernavn må være minst 3 tegn.')
@@ -63,27 +70,15 @@ export default function CompleteProfilePage() {
     setSaving(true)
     setError('')
 
-    try {
-      await createProfileWithUsername(userId, trimmedUsername)
+    const result = await createProfileWithUsername(userId, trimmedUsername)
+    if (result.error === null) {
       router.replace('/leagues')
-    } catch (saveError) {
-      if (
-        saveError instanceof Error &&
-        (saveError.message === RESERVED_USERNAME_ERROR ||
-          isReservedUsernameConstraintError(saveError))
-      ) {
-        setError(RESERVED_USERNAME_ERROR)
-      } else if (
-        (saveError instanceof Error && saveError.message === USERNAME_TAKEN_CI_ERROR) ||
-        isUsernameTakenError(saveError)
-      ) {
-        setError(USERNAME_TAKEN_CI_ERROR)
-      } else {
-        setError(saveError instanceof Error ? saveError.message : 'Kunne ikke lagre profil.')
-      }
-    } finally {
-      setSaving(false)
+    } else if (result.error === 'username_taken') {
+      setError('Brukernavnet er allerede tatt')
+    } else {
+      setError('Kunne ikke lagre brukernavn')
     }
+    setSaving(false)
   }
 
   return (

@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getProfileByUserId } from '@/lib/profiles'
+import { getProfileByUserId, profileHasUsername } from '@/lib/profiles'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -21,7 +21,7 @@ export default function LoginPage() {
 
       if (user) {
         const profile = await getProfileByUserId(user.id)
-        router.replace(profile ? '/leagues' : '/complete-profile')
+        router.replace(profileHasUsername(profile) ? '/leagues' : '/complete-profile')
       }
     }
 
@@ -32,7 +32,7 @@ export default function LoginPage() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         void getProfileByUserId(session.user.id).then((profile) => {
-          router.replace(profile ? '/leagues' : '/complete-profile')
+          router.replace(profileHasUsername(profile) ? '/leagues' : '/complete-profile')
         })
       }
     })
@@ -64,7 +64,7 @@ export default function LoginPage() {
     } = await supabase.auth.getUser()
     if (user) {
       const profile = await getProfileByUserId(user.id)
-      router.replace(profile ? '/leagues' : '/complete-profile')
+      router.replace(profileHasUsername(profile) ? '/leagues' : '/complete-profile')
       return
     }
     setError('Kunne ikke hente brukerprofil. Prøv igjen.')

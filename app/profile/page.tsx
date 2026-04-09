@@ -8,11 +8,11 @@ import { AppNav } from '@/components/AppNav'
 import {
   getProfileByUserId,
   isReservedUsername,
-  isReservedUsernameConstraintError,
   isUsernameAvailable,
-  isUsernameTakenError,
+  profileHasUsername,
   RESERVED_USERNAME_ERROR,
   USERNAME_TAKEN_CI_ERROR,
+  usernameSaveErrorMessage,
 } from '@/lib/profiles'
 
 export default function ProfilePage() {
@@ -45,7 +45,7 @@ export default function ProfilePage() {
 
       try {
         const profile = await getProfileByUserId(user.id)
-        if (!profile) {
+        if (!profileHasUsername(profile)) {
           router.replace('/complete-profile')
           return
         }
@@ -118,13 +118,7 @@ export default function ProfilePage() {
     setSaving(false)
 
     if (updateError) {
-      if (isReservedUsernameConstraintError(updateError)) {
-        setError(RESERVED_USERNAME_ERROR)
-      } else if (isUsernameTakenError(updateError)) {
-        setError(USERNAME_TAKEN_CI_ERROR)
-      } else {
-        setError(updateError.message)
-      }
+      setError(usernameSaveErrorMessage(updateError))
       return
     }
 
