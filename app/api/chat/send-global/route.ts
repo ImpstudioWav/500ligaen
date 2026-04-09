@@ -1,27 +1,11 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { applyMentionsAfterRegularMessage } from '@/lib/chatApplyMentions'
+import { getUserIdFromBearer } from '@/lib/get-user-id-from-bearer'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
 const GLOBAL_CHAT_MAX_COUNT = 300
 const GLOBAL_CHAT_TRIM_COUNT = 50
-
-async function getUserIdFromBearer(request: Request): Promise<string | null> {
-  const authHeader = request.headers.get('authorization')
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null
-  if (!token) return null
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !anon) return null
-  const authClient = createClient(url, anon, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  })
-  const {
-    data: { user },
-    error,
-  } = await authClient.auth.getUser()
-  if (error || !user) return null
-  return user.id
-}
 
 /**
  * Only rows with league_id IS NULL (global chat). Never touches league messages.
@@ -86,11 +70,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Meldingen kan ikke være tom.' }, { status: 400 })
   }
 
+  const replyToRaw = body.replyToMessageId
+  const replyToMessageId =
+    typeof replyToRaw === 'string' && replyToRaw.length > 0 ? replyToRaw.trim() : null
+
   let admin: SupabaseClient
   try {
     admin = getSupabaseAdmin()
   } catch {
     return NextResponse.json({ error: 'Serveroppsett mangler (service role).' }, { status: 500 })
+  }
+
+  if (replyToMessageId) {
+    const { data: parent, error: parentErr } = await admin
+      .from('messages')
+      .select('id, league_id')
+      .eq('id', replyToMessageId)
+      .maybeSingle()
+
+    if (parentErr || !parent) {
+      return NextResponse.json(
+        { error: 'Ugyldig svar: originalmeldingen finnes ikke.' },
+        { status: 400 }
+      )
+    }
+    const row = parent as { id: string; league_id: string | null }
+    if (row.league_id !== null) {
+      return NextResponse.json(
+        { error: 'Ugyldig svar: bare globale meldinger kan svar på her.' },
+        { status: 400 }
+      )
+    }
   }
 
   const { data: inserted, error: insertError } = await admin
@@ -99,8 +109,9 @@ export async function POST(request: Request) {
       user_id: userId,
       content,
       league_id: null,
+      reply_to_message_id: replyToMessageId,
     })
-    .select('id, user_id, content, created_at, league_id')
+    .select('id, user_id, content, created_at, league_id, reply_to_message_id')
     .single()
 
   if (insertError) {
@@ -116,6 +127,23 @@ export async function POST(request: Request) {
       message: inserted,
       warning:
         'Meldingen ble sendt, men automatisk opprydding av gammel global chat feilet. Innholdet er lagret.',
+    })
+  }
+
+  try {
+    await applyMentionsAfterRegularMessage(admin, {
+      messageId: (inserted as { id: string }).id,
+      authorId: userId,
+      content: (inserted as { content: string }).content,
+      leagueId: null,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Nevnelser feilet.'
+    console.error('[send-global] apply mentions failed after successful insert:', msg)
+    return NextResponse.json({
+      message: inserted,
+      warning:
+        'Meldingen ble sendt, men nevnelser kunne ikke lagres. Prøv å nevne på nytt eller kontakt support.',
     })
   }
 

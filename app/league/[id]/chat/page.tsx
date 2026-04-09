@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { AppNav } from '@/components/AppNav'
 import { getProfileByUserId } from '@/lib/profiles'
 import { LeagueChatPanel } from '@/components/league/LeagueChatPanel'
+import { LEAGUE_CHAT_READ_EVENT, setLastReadMessageId } from '@/lib/leagueChatReadState'
 
 export default function LeagueChatPage() {
   const params = useParams()
@@ -65,6 +66,27 @@ export default function LeagueChatPage() {
 
     void gate()
   }, [leagueId, router])
+
+  useEffect(() => {
+    if (!ready || !leagueId) return
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('messages')
+        .select('id')
+        .eq('league_id', leagueId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (!cancelled && data?.id) {
+        setLastReadMessageId(leagueId, data.id as string)
+        window.dispatchEvent(new CustomEvent(LEAGUE_CHAT_READ_EVENT))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [ready, leagueId])
 
   useEffect(() => {
     const {

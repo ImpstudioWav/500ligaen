@@ -3,7 +3,15 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { createProfileWithUsername, getProfileByUserId, isUsernameTakenError } from '@/lib/profiles'
+import {
+  createProfileWithUsername,
+  getProfileByUserId,
+  isReservedUsername,
+  isReservedUsernameConstraintError,
+  isUsernameTakenError,
+  RESERVED_USERNAME_ERROR,
+  USERNAME_TAKEN_CI_ERROR,
+} from '@/lib/profiles'
 
 export default function CompleteProfilePage() {
   const router = useRouter()
@@ -42,9 +50,13 @@ export default function CompleteProfilePage() {
     e.preventDefault()
 
     if (!userId) return
-    const cleanedUsername = username.trim().toLowerCase()
-    if (cleanedUsername.length < 3) {
+    const trimmedUsername = username.trim()
+    if (trimmedUsername.length < 3) {
       setError('Brukernavn må være minst 3 tegn.')
+      return
+    }
+    if (isReservedUsername(trimmedUsername)) {
+      setError(RESERVED_USERNAME_ERROR)
       return
     }
 
@@ -52,11 +64,20 @@ export default function CompleteProfilePage() {
     setError('')
 
     try {
-      await createProfileWithUsername(userId, cleanedUsername)
+      await createProfileWithUsername(userId, trimmedUsername)
       router.replace('/leagues')
     } catch (saveError) {
-      if (isUsernameTakenError(saveError)) {
-        setError('Brukernavnet er allerede i bruk. Velg et annet.')
+      if (
+        saveError instanceof Error &&
+        (saveError.message === RESERVED_USERNAME_ERROR ||
+          isReservedUsernameConstraintError(saveError))
+      ) {
+        setError(RESERVED_USERNAME_ERROR)
+      } else if (
+        (saveError instanceof Error && saveError.message === USERNAME_TAKEN_CI_ERROR) ||
+        isUsernameTakenError(saveError)
+      ) {
+        setError(USERNAME_TAKEN_CI_ERROR)
       } else {
         setError(saveError instanceof Error ? saveError.message : 'Kunne ikke lagre profil.')
       }

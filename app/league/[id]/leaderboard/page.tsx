@@ -133,7 +133,7 @@ export default function LeagueLeaderboardPage() {
                 </p>
               )
             ) : (
-              <LeagueLeaderboardSection leagueId={leagueId} />
+              <LeagueLeaderboardSection leagueId={leagueId} enableSearch />
             )}
           </section>
         </div>

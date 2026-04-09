@@ -1,20 +1,25 @@
 'use client'
 
-import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { ChatMessageBubble } from '@/components/chat/ChatMessageBubble'
+import { ChatMentionTextField } from '@/components/chat/ChatMentionTextField'
+import { buildUsernameKeyToUserIdMap } from '@/lib/leagueMentions'
 import {
   type ChatUserInfo,
   getProfileByUserId,
   getUsernameMap,
   shortenUserId,
 } from '@/lib/profiles'
+import { buildRepliedToPayload } from '@/lib/chatReplyPreview'
 
 type AdminMessage = {
   id: string
   user_id: string
   content: string
   created_at: string
+  reply_to_admin_message_id?: string | null
 }
 
 const CHANNEL_NAME = 'admin-messages-internal'
@@ -46,8 +51,18 @@ export function AdminChatPanel({ fillColumn = false }: AdminChatPanelProps) {
   const [error, setError] = useState('')
   const [userInfoMap, setUserInfoMap] = useState<Record<string, ChatUserInfo>>({})
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null)
+  const [mentionCandidates, setMentionCandidates] = useState<
+    { userId: string; username: string }[]
+  >([])
+  const [replyTo, setReplyTo] = useState<AdminMessage | null>(null)
 
   const scrollContainerRef = useRef<HTMLElement>(null)
+  const chatInputRef = useRef<HTMLInputElement>(null)
+
+  const usernameKeyToUserId = useMemo(
+    () => buildUsernameKeyToUserIdMap(mentionCandidates),
+    [mentionCandidates]
+  )
 
   const addMessageIfMissing = (prev: AdminMessage[], incoming: AdminMessage) => {
     if (prev.some((m) => m.id === incoming.id)) return prev
@@ -55,6 +70,16 @@ export function AdminChatPanel({ fillColumn = false }: AdminChatPanelProps) {
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     )
   }
+
+  useEffect(() => {
+    if (loadingMessages || sending) return
+    if (typeof window === 'undefined') return
+    if (!window.matchMedia('(min-width: 768px)').matches) return
+    const tid = window.setTimeout(() => {
+      chatInputRef.current?.focus({ preventScroll: true })
+    }, 50)
+    return () => window.clearTimeout(tid)
+  }, [loadingMessages, sending])
 
   useEffect(() => {
     let isMounted = true
@@ -92,9 +117,27 @@ export function AdminChatPanel({ fillColumn = false }: AdminChatPanelProps) {
 
       setUserId(user.id)
 
+      const { data: adminProfs, error: adminProfErr } = await supabase
+        .from('profiles')
+        .select('id, username')
+        .eq('is_admin', true)
+        .order('username')
+
+      if (isMounted) {
+        if (!adminProfErr && adminProfs) {
+          const opts = (adminProfs as { id: string; username: string | null }[]).map((r) => ({
+            userId: r.id,
+            username: (r.username?.trim() ? r.username.trim() : shortenUserId(r.id)) as string,
+          }))
+          setMentionCandidates(opts)
+        } else {
+          setMentionCandidates([])
+        }
+      }
+
       const { data, error: fetchError } = await supabase
         .from('admin_messages')
-        .select('id, user_id, content, created_at')
+        .select('id, user_id, content, created_at, reply_to_admin_message_id')
         .order('created_at', { ascending: true })
 
       if (fetchError) {
@@ -172,8 +215,12 @@ export function AdminChatPanel({ fillColumn = false }: AdminChatPanelProps) {
 
     const { data, error: insertError } = await supabase
       .from('admin_messages')
-      .insert({ user_id: userId, content: trimmed })
-      .select('id, user_id, content, created_at')
+      .insert({
+        user_id: userId,
+        content: trimmed,
+        reply_to_admin_message_id: replyTo?.id ?? null,
+      })
+      .select('id, user_id, content, created_at, reply_to_admin_message_id')
       .single()
 
     setSending(false)
@@ -183,11 +230,37 @@ export function AdminChatPanel({ fillColumn = false }: AdminChatPanelProps) {
       return
     }
 
-    setMessages((prev) => addMessageIfMissing(prev, data as AdminMessage))
+    const row = data as AdminMessage
+
+    if (trimmed.includes('@')) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (token) {
+        const res = await fetch('/api/chat/apply-mentions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ adminMessageId: row.id }),
+        })
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => ({}))) as { error?: string }
+          setError(
+            `Meldingen ble sendt, men nevnelser ble ikke lagret: ${payload.error ?? `HTTP ${res.status}`}.`
+          )
+        }
+      }
+    }
+
+    setMessages((prev) => addMessageIfMissing(prev, row))
     void getUsernameMap([userId]).then((infos) => {
       setUserInfoMap((p) => ({ ...p, ...infos }))
     })
     setContent('')
+    setReplyTo(null)
   }
 
   const handleDeleteOwnMessage = async (messageId: string) => {
@@ -226,7 +299,7 @@ export function AdminChatPanel({ fillColumn = false }: AdminChatPanelProps) {
 
   return (
     <div
-      className={`flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-200/80 ${heightClasses}`}
+      className={`flex w-full flex-col overflow-x-hidden overflow-y-visible rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-200/80 ${heightClasses}`}
     >
       <section
         ref={scrollContainerRef}
@@ -242,33 +315,33 @@ export function AdminChatPanel({ fillColumn = false }: AdminChatPanelProps) {
             const label = info?.username ?? shortenUserId(message.user_id)
             const isOwn = userId !== null && message.user_id === userId
             return (
-              <article key={message.id} className="rounded-xl bg-slate-100 px-3 py-2">
-                <p className="text-sm text-slate-900">{message.content}</p>
-                <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-                  <p className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-500">
-                    <span className="inline-flex flex-wrap items-center gap-x-1.5">
-                      <span>{label}</span>
-                      {info?.isAdmin ? (
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-amber-900">
-                          ADMIN
-                        </span>
-                      ) : null}
-                    </span>
-                    <span aria-hidden>•</span>
-                    <span>{new Date(message.created_at).toLocaleString('nb-NO')}</span>
-                  </p>
-                  {isOwn ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteOwnMessage(message.id)}
-                      disabled={deletingMessageId === message.id}
-                      className="shrink-0 text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 transition hover:text-red-700 disabled:opacity-50"
-                    >
-                      {deletingMessageId === message.id ? '…' : 'Slett'}
-                    </button>
-                  ) : null}
-                </div>
-              </article>
+              <ChatMessageBubble
+                key={message.id}
+                content={message.content}
+                usernameLabel={label}
+                isAdmin={info?.isAdmin === true}
+                createdAtLabel={new Date(message.created_at).toLocaleString('nb-NO')}
+                isOwn={isOwn}
+                repliedTo={buildRepliedToPayload(
+                  messages,
+                  message.reply_to_admin_message_id,
+                  userInfoMap,
+                  shortenUserId,
+                  userId
+                )}
+                onReply={
+                  userId
+                    ? () => {
+                        setReplyTo(message)
+                        requestAnimationFrame(() => chatInputRef.current?.focus())
+                      }
+                    : undefined
+                }
+                onDelete={
+                  isOwn ? () => void handleDeleteOwnMessage(message.id) : undefined
+                }
+                deletePending={deletingMessageId === message.id}
+              />
             )
           })
         )}
@@ -276,19 +349,41 @@ export function AdminChatPanel({ fillColumn = false }: AdminChatPanelProps) {
 
       <form
         onSubmit={(e) => void handleSend(e)}
-        className="shrink-0 space-y-2 border-t border-slate-200 bg-white p-3 sm:p-4"
+        className="relative z-20 shrink-0 space-y-2 overflow-visible border-t border-slate-200 bg-white p-3 sm:p-4"
       >
         {error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         ) : null}
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
+
+        {replyTo ? (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-100/90 px-3 py-2 text-xs text-slate-700">
+            <span className="min-w-0 truncate">
+              <span className="font-medium">Svar til </span>
+              {userInfoMap[replyTo.user_id]?.username ?? shortenUserId(replyTo.user_id)}:{' '}
+              {replyTo.content.length > 80 ? `${replyTo.content.slice(0, 80)}…` : replyTo.content}
+            </span>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              className="shrink-0 font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900"
+            >
+              Avbryt
+            </button>
+          </div>
+        ) : null}
+
+        <div className="flex items-end gap-2">
+          <ChatMentionTextField
+            id="admin-chat-input"
+            label="Admin-melding (bruk @ for å nevne)"
             value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Melding til adminer..."
-            className="w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+            onChange={setContent}
             disabled={sending || loadingMessages}
+            placeholder="Melding til adminer… (@ for å nevne)"
+            candidates={mentionCandidates}
+            emptyCandidatesHint="Fant ingen admin-brukere å foreslå."
+            listAriaLabel="Nevn admin"
+            inputRef={chatInputRef}
           />
           <button
             type="submit"

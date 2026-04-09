@@ -1,14 +1,18 @@
 'use client'
 
-import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { ChatMessageBubble } from '@/components/chat/ChatMessageBubble'
+import { ChatMentionTextField } from '@/components/chat/ChatMentionTextField'
+import { buildUsernameKeyToUserIdMap } from '@/lib/leagueMentions'
 import {
   type ChatUserInfo,
   getProfileByUserId,
   getUsernameMap,
   shortenUserId,
 } from '@/lib/profiles'
+import { buildRepliedToPayload } from '@/lib/chatReplyPreview'
 
 type Message = {
   id: string
@@ -16,6 +20,7 @@ type Message = {
   content: string
   created_at: string
   league_id?: string | null
+  reply_to_message_id?: string | null
 }
 
 type GlobalChatPanelProps = {
@@ -23,6 +28,12 @@ type GlobalChatPanelProps = {
   fillColumn?: boolean
   /** If set (e.g. 50 on /leagues), fetch and show at most this many latest messages; send + realtime stay trimmed */
   previewMessageLimit?: number
+  /** Tighter layout for the floating desktop widget (use with previewMessageLimit) */
+  compactLayout?: boolean
+  /** `id` of the message `<input>` (required if multiple panels can mount) */
+  inputId?: string
+  /** `id` for the admin clear-confirm field when inputId is customized */
+  clearConfirmFieldId?: string
 }
 
 /**
@@ -31,6 +42,9 @@ type GlobalChatPanelProps = {
 export function GlobalChatPanel({
   fillColumn = false,
   previewMessageLimit,
+  compactLayout = false,
+  inputId = 'global-chat-input',
+  clearConfirmFieldId = 'global-chat-clear-confirm',
 }: GlobalChatPanelProps) {
   const router = useRouter()
   const [messages, setMessages] = useState<Message[]>([])
@@ -47,8 +61,20 @@ export function GlobalChatPanel({
   const [clearSuccess, setClearSuccess] = useState('')
   const [clearingGlobal, setClearingGlobal] = useState(false)
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null)
+  const [mentionCandidates, setMentionCandidates] = useState<
+    { userId: string; username: string }[]
+  >([])
+  const [replyTo, setReplyTo] = useState<Message | null>(null)
 
   const scrollContainerRef = useRef<HTMLElement>(null)
+  const chatInputRef = useRef<HTMLInputElement>(null)
+  /** Bumps when the load effect cleans up so in-flight fetches cannot subscribe or mutate state. */
+  const globalChatLoadGenerationRef = useRef(0)
+
+  const usernameKeyToUserId = useMemo(
+    () => buildUsernameKeyToUserIdMap(mentionCandidates),
+    [mentionCandidates]
+  )
 
   const isPreview = previewMessageLimit != null && previewMessageLimit > 0
   const previewCap = previewMessageLimit ?? 0
@@ -64,8 +90,20 @@ export function GlobalChatPanel({
   }
 
   useEffect(() => {
+    if (loadingMessages || sending) return
+    if (typeof window === 'undefined') return
+    if (!window.matchMedia('(min-width: 768px)').matches) return
+    const tid = window.setTimeout(() => {
+      chatInputRef.current?.focus({ preventScroll: true })
+    }, 50)
+    return () => window.clearTimeout(tid)
+  }, [loadingMessages, sending])
+
+  useEffect(() => {
+    const gen = ++globalChatLoadGenerationRef.current
     let isMounted = true
-    let removeChannel: (() => void) | undefined
+
+    setLoadingMessages(true)
 
     const loadChat = async () => {
       setError('')
@@ -80,7 +118,7 @@ export function GlobalChatPanel({
         return
       }
 
-      if (!isMounted) return
+      if (!isMounted || gen !== globalChatLoadGenerationRef.current) return
 
       const profile = await getProfileByUserId(user.id)
       if (!profile) {
@@ -88,14 +126,32 @@ export function GlobalChatPanel({
         return
       }
 
-      if (!isMounted) return
+      if (!isMounted || gen !== globalChatLoadGenerationRef.current) return
 
       setUserId(user.id)
       setIsAdmin(profile.is_admin === true)
 
+      const { data: profRows, error: profErr } = await supabase
+        .from('profiles')
+        .select('id, username')
+        .order('username')
+        .limit(500)
+
+      if (!isMounted || gen !== globalChatLoadGenerationRef.current) return
+
+      if (!profErr && profRows) {
+        const opts = (profRows as { id: string; username: string | null }[]).map((r) => ({
+          userId: r.id,
+          username: (r.username?.trim() ? r.username.trim() : shortenUserId(r.id)) as string,
+        }))
+        setMentionCandidates(opts)
+      } else {
+        setMentionCandidates([])
+      }
+
       let query = supabase
         .from('messages')
-        .select('id, user_id, content, created_at, league_id')
+        .select('id, user_id, content, created_at, league_id, reply_to_message_id')
         .is('league_id', null)
 
       if (isPreview) {
@@ -106,58 +162,78 @@ export function GlobalChatPanel({
 
       const { data, error: messagesError } = await query
 
+      if (!isMounted || gen !== globalChatLoadGenerationRef.current) return
+
       if (messagesError) {
-        if (isMounted) setError(messagesError.message)
+        setError(messagesError.message)
       } else {
         const fetchedMessages = (
           isPreview ? [...(data ?? [])].reverse() : (data ?? [])
         ) as Message[]
-        if (isMounted) {
-          setMessages(fetchedMessages)
-          const userInfos = await getUsernameMap(fetchedMessages.map((message) => message.user_id))
-          if (isMounted) setUserInfoMap(userInfos)
-        }
+        setMessages(fetchedMessages)
+        const userInfos = await getUsernameMap(fetchedMessages.map((message) => message.user_id))
+        if (!isMounted || gen !== globalChatLoadGenerationRef.current) return
+        setUserInfoMap(userInfos)
       }
 
-      if (isMounted) setLoadingMessages(false)
-
-      const channel = supabase
-        .channel('public:messages:global')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: 'league_id=is.null',
-          },
-          (payload) => {
-            const newMessage = payload.new as Message
-            if (newMessage.league_id != null) return
-            setMessages((prev) => {
-              const next = addMessageIfMissing(prev, newMessage)
-              if (isPreview) return next.slice(-previewCap)
-              return next
-            })
-            void getUsernameMap([newMessage.user_id]).then((infos) => {
-              setUserInfoMap((p) => ({ ...p, ...infos }))
-            })
-          }
-        )
-        .subscribe()
-
-      removeChannel = () => {
-        void supabase.removeChannel(channel)
-      }
+      if (!isMounted || gen !== globalChatLoadGenerationRef.current) return
+      setLoadingMessages(false)
     }
 
     void loadChat()
 
     return () => {
       isMounted = false
-      removeChannel?.()
+      globalChatLoadGenerationRef.current++
     }
   }, [router, isPreview, previewCap])
+
+  useEffect(() => {
+    if (!userId || loadingMessages) return
+
+    const channelTopic = `global-messages:${crypto.randomUUID()}`
+    let alive = true
+
+    const ch = supabase.channel(channelTopic)
+
+    ch.on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'messages' },
+      (payload) => {
+        if (!alive) return
+        const newMessage = payload.new as Message
+        if (newMessage.league_id != null) return
+        setMessages((prev) => {
+          const next = addMessageIfMissing(prev, newMessage)
+          if (isPreview) return next.slice(-previewCap)
+          return next
+        })
+        void getUsernameMap([newMessage.user_id]).then((infos) => {
+          if (!alive) return
+          setUserInfoMap((p) => ({ ...p, ...infos }))
+        })
+      }
+    ).on(
+      'postgres_changes',
+      { event: 'DELETE', schema: 'public', table: 'messages' },
+      (payload) => {
+        if (!alive) return
+        const deletedId = (payload.old as { id?: string } | undefined)?.id
+        if (!deletedId) return
+        setMessages((prev) => {
+          if (!prev.some((m) => m.id === deletedId)) return prev
+          return prev.filter((m) => m.id !== deletedId)
+        })
+      }
+    )
+
+    ch.subscribe()
+
+    return () => {
+      alive = false
+      void supabase.removeChannel(ch)
+    }
+  }, [userId, loadingMessages, isPreview, previewCap])
 
   const handleSend = async (e: FormEvent) => {
     e.preventDefault()
@@ -184,7 +260,10 @@ export function GlobalChatPanel({
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ content: trimmed }),
+      body: JSON.stringify({
+        content: trimmed,
+        replyToMessageId: replyTo?.id ?? undefined,
+      }),
     })
 
     const payload = (await res.json().catch(() => ({}))) as {
@@ -212,7 +291,9 @@ export function GlobalChatPanel({
       if (isPreview) return next.slice(-previewCap)
       return next
     })
+
     setContent('')
+    setReplyTo(null)
   }
 
   const handleDeleteOwnMessage = async (messageId: string) => {
@@ -310,7 +391,9 @@ export function GlobalChatPanel({
   }, [loadingMessages, messages, userInfoMap])
 
   let heightClasses: string
-  if (isPreview) {
+  if (compactLayout && isPreview) {
+    heightClasses = 'flex min-h-0 w-full max-h-full flex-1 flex-col overflow-hidden'
+  } else if (isPreview) {
     heightClasses = 'w-full'
   } else if (fillColumn) {
     heightClasses =
@@ -321,19 +404,31 @@ export function GlobalChatPanel({
       'h-[min(70dvh,calc(100dvh-12rem))] max-h-[min(85dvh,calc(100dvh-8rem))] min-h-[240px]'
   }
 
-  const messagesScrollClass = isPreview
-    ? 'h-[min(50dvh,26rem)] min-h-[220px] max-h-[min(60dvh,32rem)] shrink-0 sm:min-h-[240px] sm:h-[min(52dvh,28rem)]'
-    : fillColumn
-      ? 'min-h-0 flex-1'
-      : 'max-h-[60vh] min-h-0 flex-1 overflow-y-auto'
+  const messagesScrollClass =
+    compactLayout && isPreview
+      ? 'min-h-0 flex-1 overflow-y-auto bg-slate-50/50 p-2.5 space-y-2'
+      : isPreview
+        ? 'h-[min(50dvh,26rem)] min-h-[220px] max-h-[min(60dvh,32rem)] shrink-0 sm:min-h-[240px] sm:h-[min(52dvh,28rem)]'
+        : fillColumn
+          ? 'min-h-0 flex-1'
+          : 'max-h-[60vh] min-h-0 flex-1 overflow-y-auto'
+
+  const sectionPad =
+    compactLayout && isPreview ? '' : 'space-y-2.5 sm:space-y-3 p-3 sm:p-4'
+
+  const shellClass =
+    compactLayout && isPreview
+      ? 'flex w-full min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-visible rounded-none border-0 bg-white shadow-none ring-0'
+      : 'flex w-full flex-col overflow-x-hidden overflow-y-visible rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-200/80'
+
+  const formPad = compactLayout ? 'p-2.5' : 'p-3 sm:p-4'
+  const adminPad = compactLayout ? 'px-2.5 pb-2.5 pt-2' : 'px-3 pb-3 pt-2 sm:px-4'
 
   return (
-    <div
-      className={`flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-200/80 ${heightClasses}`}
-    >
+    <div className={`${shellClass} ${heightClasses}`}>
       <section
         ref={scrollContainerRef}
-        className={`space-y-2.5 overflow-y-auto bg-slate-50/50 p-3 sm:space-y-3 sm:p-4 ${messagesScrollClass}`}
+        className={`overflow-y-auto bg-slate-50/50 ${sectionPad} ${messagesScrollClass}`}
       >
         {loadingMessages ? (
           <p className="text-sm text-slate-500">Laster meldinger...</p>
@@ -345,51 +440,75 @@ export function GlobalChatPanel({
             const label = info?.username ?? shortenUserId(message.user_id)
             const isOwn = userId !== null && message.user_id === userId
             return (
-              <article key={message.id} className="rounded-xl bg-slate-100 px-3 py-2">
-                <p className="text-sm text-slate-900">{message.content}</p>
-                <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-                  <p className="min-w-0 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-500">
-                    <span className="inline-flex flex-wrap items-center gap-x-1.5">
-                      <span>{label}</span>
-                      {info?.isAdmin ? (
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-amber-900">
-                          ADMIN
-                        </span>
-                      ) : null}
-                    </span>
-                    <span aria-hidden>•</span>
-                    <span>{new Date(message.created_at).toLocaleString('nb-NO')}</span>
-                  </p>
-                  {isOwn ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteOwnMessage(message.id)}
-                      disabled={deletingMessageId === message.id}
-                      className="shrink-0 text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 transition hover:text-red-700 disabled:opacity-50"
-                    >
-                      {deletingMessageId === message.id ? '…' : 'Slett'}
-                    </button>
-                  ) : null}
-                </div>
-              </article>
+              <ChatMessageBubble
+                key={message.id}
+                content={message.content}
+                usernameLabel={label}
+                isAdmin={info?.isAdmin === true}
+                createdAtLabel={new Date(message.created_at).toLocaleString('nb-NO')}
+                isOwn={isOwn}
+                repliedTo={buildRepliedToPayload(
+                  messages,
+                  message.reply_to_message_id,
+                  userInfoMap,
+                  shortenUserId,
+                  userId
+                )}
+                onReply={
+                  userId
+                    ? () => {
+                        setReplyTo(message)
+                        requestAnimationFrame(() => chatInputRef.current?.focus())
+                      }
+                    : undefined
+                }
+                onDelete={
+                  isOwn ? () => void handleDeleteOwnMessage(message.id) : undefined
+                }
+                deletePending={deletingMessageId === message.id}
+              />
             )
           })
         )}
       </section>
 
-      <form onSubmit={handleSend} className="shrink-0 space-y-2 border-t border-slate-200 bg-white p-3 sm:p-4">
+      <form
+        onSubmit={handleSend}
+        className={`relative z-20 shrink-0 space-y-2 overflow-visible border-t border-slate-200 bg-white ${formPad}`}
+      >
         {error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         ) : null}
 
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
+        {replyTo ? (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-100/90 px-3 py-2 text-xs text-slate-700">
+            <span className="min-w-0 truncate">
+              <span className="font-medium">Svar til </span>
+              {userInfoMap[replyTo.user_id]?.username ?? shortenUserId(replyTo.user_id)}:{' '}
+              {replyTo.content.length > 80 ? `${replyTo.content.slice(0, 80)}…` : replyTo.content}
+            </span>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              className="shrink-0 font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900"
+            >
+              Avbryt
+            </button>
+          </div>
+        ) : null}
+
+        <div className="flex items-end gap-2">
+          <ChatMentionTextField
+            id={inputId}
+            label="Global melding (bruk @ for å nevne)"
             value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Skriv en global melding..."
-            className="w-full min-w-0 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+            onChange={setContent}
             disabled={sending || loadingMessages}
+            placeholder="Skriv en global melding… (@ for å nevne)"
+            candidates={mentionCandidates}
+            emptyCandidatesHint="Fant ingen brukerprofiler (sjekk RLS på profiles)."
+            listAriaLabel="Nevn bruker"
+            inputRef={chatInputRef}
           />
           <button
             type="submit"
@@ -402,7 +521,7 @@ export function GlobalChatPanel({
       </form>
 
       {isAdmin && !loadingMessages ? (
-        <div className="shrink-0 border-t border-slate-200 bg-white px-3 pb-3 pt-2 sm:px-4">
+        <div className={`shrink-0 border-t border-slate-200 bg-white ${adminPad}`}>
           {clearSuccess ? (
             <p className="mb-2 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
               {clearSuccess}
@@ -429,13 +548,13 @@ export function GlobalChatPanel({
               </p>
               <div>
                 <label
-                  htmlFor="global-chat-clear-confirm"
+                  htmlFor={clearConfirmFieldId}
                   className="mb-1 block text-[11px] font-medium text-red-950/90"
                 >
                   Skriv <span className="font-mono font-semibold">DELETE</span> for å bekrefte
                 </label>
                 <input
-                  id="global-chat-clear-confirm"
+                  id={clearConfirmFieldId}
                   type="text"
                   autoComplete="off"
                   value={clearTypeConfirm}

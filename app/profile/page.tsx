@@ -5,7 +5,15 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { AppNav } from '@/components/AppNav'
-import { getProfileByUserId, isUsernameTakenError } from '@/lib/profiles'
+import {
+  getProfileByUserId,
+  isReservedUsername,
+  isReservedUsernameConstraintError,
+  isUsernameAvailable,
+  isUsernameTakenError,
+  RESERVED_USERNAME_ERROR,
+  USERNAME_TAKEN_CI_ERROR,
+} from '@/lib/profiles'
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -76,10 +84,31 @@ export default function ProfilePage() {
       setError('Brukernavn kan ikke være tomt.')
       return
     }
+    if (trimmed.length < 3) {
+      setError('Brukernavn må være minst 3 tegn.')
+      return
+    }
+    if (isReservedUsername(trimmed)) {
+      setError(RESERVED_USERNAME_ERROR)
+      return
+    }
 
     setSaving(true)
     setError('')
     setMessage('')
+
+    try {
+      const available = await isUsernameAvailable(trimmed, userId)
+      if (!available) {
+        setError(USERNAME_TAKEN_CI_ERROR)
+        setSaving(false)
+        return
+      }
+    } catch (checkErr) {
+      setError(checkErr instanceof Error ? checkErr.message : 'Kunne ikke sjekke brukernavn.')
+      setSaving(false)
+      return
+    }
 
     const { error: updateError } = await supabase
       .from('profiles')
@@ -89,8 +118,10 @@ export default function ProfilePage() {
     setSaving(false)
 
     if (updateError) {
-      if (isUsernameTakenError(updateError)) {
-        setError('Brukernavnet er allerede i bruk. Velg et annet.')
+      if (isReservedUsernameConstraintError(updateError)) {
+        setError(RESERVED_USERNAME_ERROR)
+      } else if (isUsernameTakenError(updateError)) {
+        setError(USERNAME_TAKEN_CI_ERROR)
       } else {
         setError(updateError.message)
       }

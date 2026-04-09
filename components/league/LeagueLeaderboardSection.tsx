@@ -22,6 +22,11 @@ type Props = {
   leagueId: string
   /** First N rows only when search is empty; with search text, all matches are shown */
   previewRowLimit?: number
+  /**
+   * Hub-style preview: show all rows (when search empty) in a body that scrolls, ~N rows tall.
+   * When set, previewRowLimit is only used for “has more” / link copy, not for slicing.
+   */
+  previewMaxVisibleRows?: number
   seeAllHref?: string
   /** When set, skips leaderboard fetch (hub supplies rows from page load) */
   injectedRows?: LeagueLeaderboardRow[]
@@ -32,6 +37,7 @@ type Props = {
 export function LeagueLeaderboardSection({
   leagueId,
   previewRowLimit,
+  previewMaxVisibleRows,
   seeAllHref,
   injectedRows,
   enableSearch,
@@ -45,6 +51,8 @@ export function LeagueLeaderboardSection({
   const [searchQuery, setSearchQuery] = useState('')
 
   const isPreview = previewRowLimit != null && previewRowLimit > 0
+  const usesScrollPreview =
+    isPreview && previewMaxVisibleRows != null && previewMaxVisibleRows > 0
   const usesInjection = injectedRows !== undefined
 
   useEffect(() => {
@@ -210,14 +218,18 @@ export function LeagueLeaderboardSection({
         ).toLowerCase()
         return label.includes(q)
       })
-    } else if (isPreview && previewRowLimit) {
+    } else if (isPreview && !usesScrollPreview && previewRowLimit) {
       list = rankedRows.slice(0, previewRowLimit)
     }
     return list
-  }, [rankedRows, isSearching, searchTrimmed, isPreview, previewRowLimit, usernameMap])
+  }, [rankedRows, isSearching, searchTrimmed, isPreview, usesScrollPreview, previewRowLimit, usernameMap])
 
   const hasMore =
-    !isSearching && isPreview && rankedRows.length > (previewRowLimit ?? 0)
+    !isSearching &&
+    isPreview &&
+    (usesScrollPreview
+      ? rankedRows.length > (previewMaxVisibleRows ?? 0)
+      : rankedRows.length > (previewRowLimit ?? 0))
 
   const cellPad = isPreview ? 'px-2.5 py-2' : 'px-3 py-3'
   const showPreviewFooter =
@@ -266,49 +278,59 @@ export function LeagueLeaderboardSection({
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full min-w-[260px] text-left text-sm">
-            <thead className="bg-slate-100 text-slate-700">
-              <tr>
-                <th className={`w-12 ${cellPad} text-xs font-medium sm:text-sm`}>Rank</th>
-                <th className={`${cellPad} text-xs font-medium sm:text-sm`}>Bruker</th>
-                <th className={`w-16 ${cellPad} text-right text-xs font-medium sm:text-sm`}>
-                  Poeng
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayRows.map((row) => {
-                const isYou = currentUserId !== null && row.user_id === currentUserId
-                return (
-                  <tr
-                    key={row.id}
-                    className={`border-t border-slate-200 ${
-                      isYou ? 'bg-slate-900/[0.06]' : 'bg-white'
-                    }`}
-                  >
-                    <td className={`${cellPad} font-medium text-slate-900`}>{row.rank}</td>
-                    <td className={`${cellPad} text-slate-800`}>
-                      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                        <span
-                          className={`min-w-0 truncate ${isYou ? 'font-semibold text-slate-900' : ''}`}
-                        >
-                          {usernameMap[row.user_id]?.username ?? shortenUserId(row.user_id)}
-                        </span>
-                        {isYou ? (
-                          <span className="shrink-0 rounded-md bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
-                            Deg
+          <div
+            className={
+              usesScrollPreview
+                ? 'max-h-[min(15.5rem,50vh)] overflow-y-auto overscroll-y-contain'
+                : undefined
+            }
+          >
+            <table className="w-full min-w-[260px] text-left text-sm">
+              <thead
+                className={`bg-slate-100 text-slate-700 ${usesScrollPreview ? 'sticky top-0 z-[1] shadow-[inset_0_-1px_0_0_rgb(226_232_240)]' : ''}`}
+              >
+                <tr>
+                  <th className={`w-12 ${cellPad} text-xs font-medium sm:text-sm`}>Rank</th>
+                  <th className={`${cellPad} text-xs font-medium sm:text-sm`}>Bruker</th>
+                  <th className={`w-16 ${cellPad} text-right text-xs font-medium sm:text-sm`}>
+                    Poeng
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayRows.map((row) => {
+                  const isYou = currentUserId !== null && row.user_id === currentUserId
+                  return (
+                    <tr
+                      key={row.id}
+                      className={`border-t border-slate-200 ${
+                        isYou ? 'bg-slate-900/[0.06]' : 'bg-white'
+                      }`}
+                    >
+                      <td className={`${cellPad} font-medium text-slate-900`}>{row.rank}</td>
+                      <td className={`${cellPad} text-slate-800`}>
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                          <span
+                            className={`min-w-0 truncate ${isYou ? 'font-semibold text-slate-900' : ''}`}
+                          >
+                            {usernameMap[row.user_id]?.username ?? shortenUserId(row.user_id)}
                           </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className={`${cellPad} text-right font-semibold tabular-nums text-slate-900`}>
-                      {row.points}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                          {isYou ? (
+                            <span className="shrink-0 rounded-md bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
+                              Deg
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className={`${cellPad} text-right font-semibold tabular-nums text-slate-900`}>
+                        {row.points}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

@@ -12,7 +12,6 @@ import {
   type LeagueLeaderboardRow,
 } from '@/components/league/LeagueLeaderboardSection'
 import { LeagueResultsSection } from '@/components/league/LeagueResultsSection'
-import { LeagueChatPanel } from '@/components/league/LeagueChatPanel'
 
 type LeagueRow = {
   name: string | null
@@ -40,23 +39,24 @@ function leagueStatusLabel(status: string | number | null): string {
   return (map[key] ?? String(status).trim()) || '—'
 }
 
-function leagueStatusPillClass(status: string | number | null): string {
+/** Status pill for `bg-slate-900` league overview widget (matches dark placement card). */
+function leagueStatusPillClassDark(status: string | number | null): string {
   const base =
     'inline-flex max-w-full items-center rounded-full border px-2.5 py-0.5 text-xs font-medium leading-none'
   const key = normalizeLeagueStatusKey(status)
   if (!key) {
-    return `${base} border-slate-200/90 bg-slate-50 text-slate-500`
+    return `${base} border-slate-500/50 bg-white/5 text-slate-300`
   }
   if (key === 'open') {
-    return `${base} border-emerald-200/90 bg-emerald-50/90 text-emerald-900/85`
+    return `${base} border-emerald-400/35 bg-emerald-400/10 text-emerald-100`
   }
   if (key === 'draft') {
-    return `${base} border-amber-200/80 bg-amber-50/90 text-amber-900/80`
+    return `${base} border-amber-400/35 bg-amber-400/10 text-amber-100`
   }
   if (key === 'closed') {
-    return `${base} border-slate-300/90 bg-slate-100 text-slate-700`
+    return `${base} border-slate-400/35 bg-white/10 text-slate-200`
   }
-  return `${base} border-slate-200/90 bg-slate-50 text-slate-700`
+  return `${base} border-slate-500/50 bg-white/10 text-slate-200`
 }
 
 export default function LeagueDetailPage() {
@@ -291,45 +291,77 @@ export default function LeagueDetailPage() {
       )
     : null
 
+  const hubLeaderboardAndResults = (
+    <>
+      <section className="flex min-h-0 flex-col rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-200 sm:rounded-2xl sm:p-4">
+        <h2 className="text-sm font-medium text-slate-800">Poengliste</h2>
+        <p className="mt-0.5 text-xs text-slate-500">
+          Søk · hele poenglista · rull for flere
+        </p>
+        <div className="mt-2 min-h-0 flex-1 sm:mt-3 lg:mt-4">
+          <LeagueLeaderboardSection
+            leagueId={leagueId}
+            previewRowLimit={5}
+            previewMaxVisibleRows={5}
+            seeAllHref={`/league/${leagueId}/leaderboard`}
+            injectedRows={hubLeaderboardRows}
+            enableSearch
+          />
+        </div>
+      </section>
+
+      <section className="flex min-h-0 flex-col rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-200 sm:rounded-2xl sm:p-4">
+        <h2 className="text-sm font-medium text-slate-800">Mine resultater</h2>
+        <div className="mt-2 min-h-0 sm:mt-3 lg:mt-4">
+          <LeagueResultsSection
+            leagueId={leagueId}
+            previewRowLimit={5}
+            previewMaxVisibleRows={5}
+            seeAllHref={`/league/${leagueId}/results`}
+          />
+        </div>
+      </section>
+    </>
+  )
+
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-6">
-      <div className="mx-auto w-full max-w-4xl space-y-4">
+    <main className="min-h-screen bg-slate-50 px-3 py-3 sm:px-4 sm:py-6">
+      <div className="mx-auto w-full max-w-4xl space-y-3 sm:space-y-4 lg:max-w-6xl">
         <AppNav />
 
-        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <p className="text-sm">
+        <div className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-200 sm:rounded-2xl sm:p-4 lg:p-5">
+          <p className="text-sm leading-tight">
             <Link href="/leagues" className="font-medium text-slate-900 underline">
               Tilbake til ligaer
             </Link>
           </p>
 
           {loading ? (
-            <p className="mt-6 text-sm text-slate-500">Laster...</p>
+            <p className="mt-2 text-sm text-slate-500 sm:mt-4 lg:mt-6">Laster...</p>
           ) : error ? (
-            <p className="mt-6 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+            <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 sm:mt-4 lg:mt-6">{error}</p>
           ) : league ? (
-            <div className="mt-6 space-y-5">
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-8">
-                <div className="min-w-0 flex-1 space-y-5">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                      Din liga · oversikt
-                    </p>
-                    <h1 className="mt-1 text-2xl font-semibold text-slate-900">
+            <div className="mt-1.5 space-y-1.5 sm:mt-2 sm:space-y-2 lg:mt-3 lg:space-y-3">
+              {/*
+                Mobile: compact matching max-w cards; lg: fixed equal width (15rem), start-aligned / end-aligned, no vertical stretch.
+              */}
+              <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 lg:grid-cols-[1fr_auto_1fr] lg:items-start lg:gap-x-3 lg:gap-y-0 xl:gap-x-4">
+                <div className="col-start-1 row-start-1 flex min-h-0 min-w-0 justify-start lg:col-span-1 lg:row-start-1">
+                  <div className="flex w-full max-w-[12rem] flex-col rounded-lg border border-slate-900/20 bg-slate-900 px-2.5 py-2 text-white shadow-md sm:px-3 sm:py-2.5 lg:w-[15rem] lg:max-w-[15rem] lg:shrink-0 lg:px-3 lg:py-2.5">
+                    <h1 className="text-base font-semibold leading-snug text-white sm:text-[1.0625rem] lg:text-lg">
                       {league.name || 'Liga'}
                     </h1>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-slate-600">
-                      <span className="shrink-0">Status:</span>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
                       <span
-                        className={`${leagueStatusPillClass(league.status)} min-w-0 truncate`}
+                        className={`${leagueStatusPillClassDark(league.status)} min-w-0 max-w-full truncate`}
                       >
                         {leagueStatusLabel(league.status)}
                       </span>
                     </div>
-                    <div className="mt-2 text-sm text-slate-800">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                        <span className="shrink-0 text-slate-600">Ligakode:</span>
-                        <span className="inline-flex max-w-full min-w-0 items-center rounded-md bg-slate-100 px-2 py-0.5 font-mono text-sm font-semibold tracking-wide text-slate-900">
+                    <div className="mt-1.5 text-xs">
+                      <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+                        <span className="shrink-0 text-slate-400">Ligakode:</span>
+                        <span className="inline-flex min-w-0 max-w-[min(100%,7.5rem)] items-center rounded-full border-2 border-white bg-white px-1.5 py-px font-mono text-[11px] font-bold tracking-wide text-slate-900 shadow-sm sm:max-w-[9rem] lg:max-w-[10.5rem]">
                           <span className="truncate">
                             {league.join_code?.trim() ? league.join_code.trim() : '—'}
                           </span>
@@ -338,99 +370,109 @@ export default function LeagueDetailPage() {
                           <button
                             type="button"
                             onClick={() => void handleCopyJoinCode()}
-                            className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 active:bg-slate-100"
+                            className="shrink-0 rounded-full border-2 border-white/50 bg-white/10 px-1.5 py-px text-[11px] font-medium text-white transition hover:border-white/70 hover:bg-white/15 active:bg-white/20"
                           >
                             {joinCodeCopied ? 'Kopiert!' : 'Kopier'}
                           </button>
                         ) : null}
                       </div>
-                      {isAdmin ? (
-                        <p className="mt-1.5 text-xs text-slate-500">
-                          Del koden med nye medlemmer.
-                        </p>
-                      ) : null}
                     </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 shadow-sm ring-1 ring-slate-900/5 lg:hidden">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                      Din plassering
-                    </p>
-                    <div className="mt-3 flex items-end justify-between gap-6">
-                      <div>
-                        <p className="text-xs text-slate-500">Rank</p>
-                        <p className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">
-                          {myLeagueSummary != null ? `#${myLeagueSummary.rank}` : '—'}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-slate-500">Poeng</p>
-                        <p className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">
-                          {myLeagueSummary != null ? myLeagueSummary.points : '—'}
-                        </p>
-                      </div>
-                    </div>
-                    {myLeagueSummary == null && hubLeaderboardRows.length > 0 ? (
-                      <p className="mt-2 text-xs text-slate-500">Ikke på poenglisten ennå</p>
-                    ) : null}
-                    {hubLeaderboardRows.length === 0 ? (
-                      <p className="mt-2 text-xs text-slate-500">Ingen poeng i ligaen ennå</p>
-                    ) : null}
                   </div>
                 </div>
 
-                <aside className="hidden shrink-0 lg:block lg:w-56 xl:w-64">
-                  <div className="rounded-xl border border-slate-900/20 bg-slate-900 px-4 py-4 text-white shadow-md">
+                <div className="col-start-2 row-start-1 flex min-h-0 min-w-0 justify-end lg:hidden">
+                  <div className="flex w-full max-w-[12rem] flex-col rounded-lg border border-slate-900/20 bg-slate-900 px-2.5 py-2 text-white shadow-md sm:px-3 sm:py-2.5">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                       Din plassering
                     </p>
-                    <div className="mt-4 flex items-end justify-between gap-4">
+                    <div className="mt-2 flex items-end justify-between gap-2">
                       <div>
-                        <p className="text-xs text-slate-400">Rank</p>
-                        <p className="mt-1 text-3xl font-bold leading-none tabular-nums">
+                        <p className="text-[11px] text-slate-400">Rank</p>
+                        <p className="mt-0.5 text-xl font-bold leading-none tabular-nums">
                           {myLeagueSummary != null ? `#${myLeagueSummary.rank}` : '—'}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-xs text-slate-400">Poeng</p>
-                        <p className="mt-1 text-3xl font-bold leading-none tabular-nums">
+                        <p className="text-[11px] text-slate-400">Poeng</p>
+                        <p className="mt-0.5 text-xl font-bold leading-none tabular-nums">
+                          {myLeagueSummary != null ? myLeagueSummary.points : '—'}
+                        </p>
+                      </div>
+                    </div>
+                  {myLeagueSummary == null && hubLeaderboardRows.length > 0 ? (
+                    <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
+                      Ikke på poenglisten ennå
+                    </p>
+                  ) : null}
+                  {hubLeaderboardRows.length === 0 ? (
+                    <p className="mt-1.5 text-[11px] text-slate-400">Ingen poeng i ligaen ennå</p>
+                  ) : null}
+                  </div>
+                </div>
+
+                <div className="col-span-2 row-start-2 flex justify-center py-0 max-lg:-mt-0.5 lg:col-span-1 lg:col-start-2 lg:row-start-1 lg:self-center lg:py-0">
+                  <img
+                    src="/500ligaen-logo.png"
+                    alt="500ligaen"
+                    className="h-auto w-[5.25rem] max-w-full object-contain sm:w-[5.5rem] lg:w-32 xl:w-36"
+                    width={200}
+                    height={67}
+                    decoding="async"
+                  />
+                </div>
+
+                <aside className="hidden min-h-0 min-w-0 lg:col-start-3 lg:row-start-1 lg:flex lg:w-full lg:justify-end">
+                  <div className="flex w-full max-w-[12rem] flex-col rounded-lg border border-slate-900/20 bg-slate-900 px-2.5 py-2 text-white shadow-md sm:px-3 sm:py-2.5 lg:w-[15rem] lg:max-w-[15rem] lg:shrink-0 lg:px-3 lg:py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Din plassering
+                    </p>
+                    <div className="mt-2 flex items-end justify-between gap-2 lg:gap-3">
+                      <div>
+                        <p className="text-[11px] text-slate-400">Rank</p>
+                        <p className="mt-0.5 text-xl font-bold leading-none tabular-nums lg:text-2xl">
+                          {myLeagueSummary != null ? `#${myLeagueSummary.rank}` : '—'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[11px] text-slate-400">Poeng</p>
+                        <p className="mt-0.5 text-xl font-bold leading-none tabular-nums lg:text-2xl">
                           {myLeagueSummary != null ? myLeagueSummary.points : '—'}
                         </p>
                       </div>
                     </div>
                     {myLeagueSummary == null && hubLeaderboardRows.length > 0 ? (
-                      <p className="mt-3 text-xs leading-snug text-slate-400">
+                      <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
                         Ikke på poenglisten ennå
                       </p>
                     ) : null}
                     {hubLeaderboardRows.length === 0 ? (
-                      <p className="mt-3 text-xs text-slate-400">Ingen poeng i ligaen ennå</p>
+                      <p className="mt-1.5 text-[11px] text-slate-400">Ingen poeng i ligaen ennå</p>
                     ) : null}
                   </div>
                 </aside>
               </div>
 
-              <div>
+              <div className="pt-0 max-lg:-mt-px lg:pt-0">
                 <Link
                   href={`/league/${leagueId}/predictions`}
                   prefetch
-                  className="block w-full rounded-xl bg-slate-900 py-3 text-center text-sm font-medium text-white transition hover:bg-slate-800"
+                  className="block w-full rounded-lg bg-slate-900 py-2 text-center text-sm font-medium text-white transition hover:bg-slate-800 sm:rounded-xl sm:py-2.5 lg:rounded-xl lg:py-3"
                 >
                   Gå til prediksjoner
                 </Link>
                 {hubPredictionLine ? (
-                  <p className="mt-2 text-center text-[11px] leading-tight text-slate-500">
+                  <p className="mt-1 px-0.5 text-center text-[10px] leading-tight text-slate-500 sm:text-[11px] lg:mt-2">
                     {hubPredictionLine}
                   </p>
                 ) : null}
               </div>
 
               {isAdmin ? (
-                <p className="text-center text-sm">
+                <p className="text-center text-[11px] sm:text-sm">
                   <Link
                     href={`/league/${leagueId}/admin/standings`}
                     prefetch
-                    className="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+                    className="font-medium text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900 sm:text-slate-700"
                   >
                     Admin standings
                   </Link>
@@ -441,46 +483,8 @@ export default function LeagueDetailPage() {
         </div>
 
         {!loading && !error && league ? (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start lg:gap-5">
-            <div className="flex flex-col gap-4 lg:col-span-5">
-              <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-                <h2 className="text-sm font-medium text-slate-800">Poengliste</h2>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Topp 5 · søk for å finne brukere på lista
-                </p>
-                <div className="mt-4">
-                  <LeagueLeaderboardSection
-                    leagueId={leagueId}
-                    previewRowLimit={5}
-                    seeAllHref={`/league/${leagueId}/leaderboard`}
-                    injectedRows={hubLeaderboardRows}
-                    enableSearch
-                  />
-                </div>
-              </section>
-
-              <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-                <h2 className="text-sm font-medium text-slate-800">Mine resultater</h2>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Utdrag · siste sesong
-                </p>
-                <div className="mt-4">
-                  <LeagueResultsSection
-                    leagueId={leagueId}
-                    previewRowLimit={4}
-                    seeAllHref={`/league/${leagueId}/results`}
-                  />
-                </div>
-              </section>
-            </div>
-
-            <div className="flex flex-col lg:col-span-7">
-              <LeagueChatPanel
-                leagueId={leagueId}
-                variant="hub"
-                fullChatHref={`/league/${leagueId}/chat`}
-              />
-            </div>
+          <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(28rem,1.55fr)] lg:items-start lg:gap-5">
+            {hubLeaderboardAndResults}
           </div>
         ) : null}
 
